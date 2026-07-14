@@ -1,0 +1,299 @@
+{
+  "extensionName": {
+    "message": "Anchors — Arc-style tabs"
+  },
+  "extensionDescription": {
+    "message": "Spaces and anchor tabs that can always return to their saved home page — inspired by Arc pinned tabs"
+  },
+  "commandGoHome": {
+    "message": "Return the current anchor tab to its saved home URL"
+  },
+  "defaultSpaceName": {
+    "message": "Personal"
+  },
+  "newSpaceTitle": {
+    "message": "New space"
+  },
+  "newFolderTitle": {
+    "message": "New folder"
+  },
+  "pinCurrentTabTitle": {
+    "message": "Pin the current tab"
+  },
+  "noteSection": {
+    "message": "Note"
+  },
+  "notePlaceholder": {
+    "message": "Space note — synced with your anchors"
+  },
+  "todaySection": {
+    "message": "Today"
+  },
+  "archiveSection": {
+    "message": "Archive"
+  },
+  "clearArchiveTitle": {
+    "message": "Clear archive"
+  },
+  "archiveSearchPlaceholder": {
+    "message": "Search the archive"
+  },
+  "resetLabel": {
+    "message": "Reset"
+  },
+  "sleepLabel": {
+    "message": "Sleep"
+  },
+  "offShort": {
+    "message": "Off"
+  },
+  "oneHourShort": {
+    "message": "1h"
+  },
+  "threeHoursShort": {
+    "message": "3h"
+  },
+  "sixHoursShort": {
+    "message": "6h"
+  },
+  "twelveHoursShort": {
+    "message": "12h"
+  },
+  "twentyFourHoursShort": {
+    "message": "24h"
+  },
+  "fifteenMinutesShort": {
+    "message": "15m"
+  },
+  "thirtyMinutesShort": {
+    "message": "30m"
+  },
+  "threeDaysShort": {
+    "message": "3d"
+  },
+  "renameSpaceShort": {
+    "message": "rename"
+  },
+  "deleteSpaceShort": {
+    "message": "delete"
+  },
+  "settingsSyncTitle": {
+    "message": "Settings and sync"
+  },
+  "emojiPickerTitle": {
+    "message": "Space emoji (press Win+. to open the full picker)"
+  },
+  "cancelButton": {
+    "message": "Cancel"
+  },
+  "okButton": {
+    "message": "OK"
+  },
+  "createButton": {
+    "message": "Create"
+  },
+  "saveButton": {
+    "message": "Save"
+  },
+  "deleteButton": {
+    "message": "Delete"
+  },
+  "clearButton": {
+    "message": "Clear"
+  },
+  "saveError": {
+    "message": "Save failed: $ERROR$",
+    "placeholders": {
+      "error": { "content": "$1" }
+    }
+  },
+  "returnHomeTitle": {
+    "message": "Return to the saved home page"
+  },
+  "actionsTitle": {
+    "message": "Actions"
+  },
+  "goHomeAction": {
+    "message": "⌂ Go home"
+  },
+  "popOutAction": {
+    "message": "↗ Move to a separate window"
+  },
+  "makeCurrentHomeAction": {
+    "message": "⚓ Make the current page the home page"
+  },
+  "homeUpdatedToast": {
+    "message": "Home page updated"
+  },
+  "clearSiteDataAction": {
+    "message": "🧹 Clear cookies and site data"
+  },
+  "renameAction": {
+    "message": "✎ Rename"
+  },
+  "anchorNameDialog": {
+    "message": "Anchor name"
+  },
+  "unpinAction": {
+    "message": "✕ Unpin"
+  },
+  "pinCurrentHereAction": {
+    "message": "⚓ Pin the current tab here"
+  },
+  "folderNameDialog": {
+    "message": "Folder name"
+  },
+  "deleteFolderAction": {
+    "message": "✕ Delete folder (move anchors up)"
+  },
+  "removeFromArchiveTitle": {
+    "message": "Remove from archive"
+  },
+  "editSpaceAction": {
+    "message": "✎ Edit name, icon, and color"
+  },
+  "deleteSpaceAction": {
+    "message": "✕ Delete space"
+  },
+  "pinAsAnchorTitle": {
+    "message": "Pin as an anchor"
+  },
+  "closeTitle": {
+    "message": "Close"
+  },
+  "invalidPageToast": {
+    "message": "Browser-internal pages cannot be pinned"
+  },
+  "addCurrentTabToast": {
+    "message": "Open a website in a regular tab, or use ⚓ next to a tab in Today"
+  },
+  "newFolderDialog": {
+    "message": "New folder"
+  },
+  "siteDataClearedToast": {
+    "message": "Cleared data for $HOST$ ($COUNT$ cookies)",
+    "placeholders": {
+      "host": { "content": "$1" },
+      "count": { "content": "$2" }
+    }
+  },
+  "newSpaceDialog": {
+    "message": "New space"
+  },
+  "spaceDialogTitle": {
+    "message": "Space “$NAME$”",
+    "placeholders": {
+      "name": { "content": "$1" }
+    }
+  },
+  "deleteSpaceDialog": {
+    "message": "Delete space “$NAME$” and all of its anchors?",
+    "placeholders": {
+      "name": { "content": "$1" }
+    }
+  },
+  "arcInvalidFileError": {
+    "message": "This does not look like a StorableSidebar.json file"
+  },
+  "defaultFolderName": {
+    "message": "Folder"
+  },
+  "defaultImportedSpaceName": {
+    "message": "Space"
+  },
+  "importSummaryToast": {
+    "message": "Imported from $SOURCE$: $SPACE_COUNT$ spaces, $ANCHOR_COUNT$ anchors",
+    "placeholders": {
+      "source": { "content": "$1" },
+      "space_count": { "content": "$2" },
+      "anchor_count": { "content": "$3" }
+    }
+  },
+  "anchorsFileSource": {
+    "message": "an Anchors file"
+  },
+  "arcSource": {
+    "message": "Arc"
+  },
+  "unknownImportFormatToast": {
+    "message": "Unknown import format"
+  },
+  "importErrorToast": {
+    "message": "Import failed: $ERROR$",
+    "placeholders": {
+      "error": { "content": "$1" }
+    }
+  },
+  "syncStatusOff": {
+    "message": "Sync is off — add a GitHub token"
+  },
+  "syncStatusCreated": {
+    "message": "Created a secret Gist and uploaded your data"
+  },
+  "syncStatusLinked": {
+    "message": "Found an existing Gist and pulled its data"
+  },
+  "syncStatusPulled": {
+    "message": "Pulled changes from another device"
+  },
+  "syncStatusPushed": {
+    "message": "Pushed changes to the Gist"
+  },
+  "syncStatusUptodate": {
+    "message": "Everything is up to date"
+  },
+  "syncErrorToast": {
+    "message": "Sync failed: $ERROR$",
+    "placeholders": {
+      "error": { "content": "$1" }
+    }
+  },
+  "syncEnabledStatus": {
+    "message": "Sync enabled"
+  },
+  "syncEnabledLastStatus": {
+    "message": "Sync enabled, last run at $TIME$",
+    "placeholders": {
+      "time": { "content": "$1" }
+    }
+  },
+  "syncDisabledStatus": {
+    "message": "Sync disabled"
+  },
+  "replaceGitHubTokenAction": {
+    "message": "Replace GitHub token"
+  },
+  "connectGitHubAction": {
+    "message": "Connect GitHub (token)"
+  },
+  "githubTokenDialog": {
+    "message": "GitHub token (Gists: read and write only)"
+  },
+  "syncNowAction": {
+    "message": "↻ Sync now"
+  },
+  "dedupAction": {
+    "message": "Duplicate protection (focus the anchor instead of a copy)"
+  },
+  "dedupEnabledToast": {
+    "message": "Duplicate protection enabled"
+  },
+  "dedupDisabledToast": {
+    "message": "Duplicate protection disabled"
+  },
+  "importAction": {
+    "message": "⤓ Import (Arc StorableSidebar or Anchors export)"
+  },
+  "exportAction": {
+    "message": "⤒ Export to file"
+  },
+  "disableSyncAction": {
+    "message": "✕ Disable sync and forget the token"
+  },
+  "syncDisabledToast": {
+    "message": "Sync disabled (the Gist was not deleted)"
+  },
+  "clearArchiveDialog": {
+    "message": "Clear the entire archive?"
+  }
+}

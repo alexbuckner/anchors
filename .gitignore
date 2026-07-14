@@ -1,0 +1,20 @@
+# OS and editors
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.swp
+*~
+
+# Local extension packages and signing keys
+dist/
+web-ext-artifacts/
+*.crx
+*.pem
+*.zip
+
+# Local exports and temporary files
+anchors-export-*.json
+*.tmp
+*.log

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Anchors</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <header id="spaces-bar">
+    <div id="spaces"></div>
+    <button id="add-space" title="New space" data-i18n-title="newSpaceTitle">+</button>
+  </header>
+
+  <main>
+    <section id="anchors-section">
+      <div class="section-head">
+        <span id="space-name"></span>
+        <span class="head-buttons">
+          <button id="add-folder" title="New folder" data-i18n-title="newFolderTitle">▸</button>
+          <button id="add-anchor" title="Pin the current tab" data-i18n-title="pinCurrentTabTitle">+</button>
+        </span>
+      </div>
+      <ul id="anchors"></ul>
+    </section>
+
+    <section id="note-section">
+      <div class="section-head" id="note-head">
+        <span><span id="note-twisty">▸</span> <span data-i18n="noteSection">Note</span></span>
+      </div>
+      <textarea id="note" rows="4" placeholder="Space note — synced with your anchors" data-i18n-placeholder="notePlaceholder" style="display:none"></textarea>
+    </section>
+
+    <section id="today-section">
+      <div class="section-head"><span data-i18n="todaySection">Today</span></div>
+      <ul id="today"></ul>
+    </section>
+
+    <section id="archive-section">
+      <div class="section-head" id="archive-head">
+        <span><span id="archive-twisty">▸</span> <span data-i18n="archiveSection">Archive</span> <span id="archive-count"></span></span>
+        <button id="archive-clear" title="Clear archive" data-i18n-title="clearArchiveTitle" style="display:none">🗑</button>
+      </div>
+      <input id="archive-search" type="text" placeholder="Search the archive" data-i18n-placeholder="archiveSearchPlaceholder" style="display:none" spellcheck="false">
+      <ul id="archive"></ul>
+    </section>
+  </main>
+
+  <footer>
+    <label><span data-i18n="resetLabel">Reset</span>
+      <select id="autoreset">
+        <option value="0" data-i18n="offShort">Off</option>
+        <option value="1" data-i18n="oneHourShort">1h</option>
+        <option value="3" data-i18n="threeHoursShort">3h</option>
+        <option value="6" data-i18n="sixHoursShort">6h</option>
+        <option value="12" data-i18n="twelveHoursShort">12h</option>
+        <option value="24" data-i18n="twentyFourHoursShort">24h</option>
+      </select>
+    </label>
+    <label><span data-i18n="sleepLabel">Sleep</span>
+      <select id="suspend">
+        <option value="0" data-i18n="offShort">Off</option>
+        <option value="15" data-i18n="fifteenMinutesShort">15m</option>
+        <option value="30" data-i18n="thirtyMinutesShort">30m</option>
+        <option value="60" data-i18n="oneHourShort">1h</option>
+        <option value="180" data-i18n="threeHoursShort">3h</option>
+      </select>
+    </label>
+    <label><span data-i18n="archiveSection">Archive</span>
+      <select id="archive-hours">
+        <option value="0" data-i18n="offShort">Off</option>
+        <option value="6" data-i18n="sixHoursShort">6h</option>
+        <option value="12" data-i18n="twelveHoursShort">12h</option>
+        <option value="24" data-i18n="twentyFourHoursShort">24h</option>
+        <option value="72" data-i18n="threeDaysShort">3d</option>
+      </select>
+    </label>
+    <span id="space-actions">
+      <a href="#" id="rename-space" data-i18n="renameSpaceShort">rename</a>
+      <a href="#" id="delete-space" data-i18n="deleteSpaceShort">delete</a>
+      <a href="#" id="sync-menu" title="Settings and sync" data-i18n-title="settingsSyncTitle">⚙</a>
+    </span>
+  </footer>
+
+  <input type="file" id="import-file" accept="application/json,.json" style="display:none">
+
+  <div id="toast"></div>
+
+  <div id="dialog-overlay">
+    <div id="dialog">
+      <div id="dialog-title"></div>
+      <input id="dialog-input" type="text" spellcheck="false">
+      <div id="dialog-icon-row">
+        <input id="dialog-icon" type="text" maxlength="4" placeholder="🙂" spellcheck="false" title="Space emoji (press Win+. to open the full picker)" data-i18n-title="emojiPickerTitle">
+        <div id="dialog-icons"></div>
+      </div>
+      <div id="dialog-colors"></div>
+      <div id="dialog-buttons">
+        <button id="dialog-cancel" data-i18n="cancelButton">Cancel</button>
+        <button id="dialog-ok" data-i18n="okButton">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="panel.js"></script>
+</body>
+</html>
