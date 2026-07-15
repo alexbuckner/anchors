@@ -508,7 +508,7 @@ footer {
   background: #1f2024;
   border-top: 1px solid rgba(255, 255, 255, .09);
   border-radius: 14px 14px 0 0;
-  max-height: min(84%, 560px);
+  max-height: min(88%, 640px);
   display: flex;
   flex-direction: column;
   box-shadow: 0 -12px 40px rgba(0, 0, 0, .45);

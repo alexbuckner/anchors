@@ -2,10 +2,11 @@
 
 Anchors brings the pinned-tab and space workflow from Arc to Chrome, Edge,
 Brave, and Vivaldi. It is a lightweight Manifest V3 extension with a compact
-side panel: every anchor tab has a saved home URL, while regular tabs stay in a
-separate Today section.
+side panel: every anchor has a saved home URL, while regular tabs stay in a
+separate Today section. By default, anchors reuse one live browser tab per
+window instead of filling the native tab strip.
 
-Current version: **0.7.0**.
+Current version: **0.7.1**.
 
 ![Anchors main panel](docs/screenshots/panel-overview.png)
 
@@ -17,8 +18,9 @@ _The screenshots use fictional demo data._
 
 ## Features
 
-- **Anchor tabs.** Click an anchor to open or focus its tab. Click the active
-  anchor again to return it to the saved home URL.
+- **Anchor tabs.** Click an anchor to open it in the window's reusable anchor
+  tab. Click the active anchor again to return it to the saved home URL. Enable
+  **Keep anchor tabs open** to give every opened anchor a separate browser tab.
 - **Spaces.** Every space has a name, color, custom icon, anchor collection,
   and note. Legacy emoji icons remain compatible.
 - **Folders and ordering.** Group anchors into one-level folders and reorder
@@ -37,6 +39,22 @@ _The screenshots use fictional demo data._
   exports.
 - **Sync.** Sync spaces, anchors, settings, and notes through browser sync and
   an optional GitHub Gist.
+
+### Tab lifecycle
+
+The default mode keeps at most one bound anchor tab in each browser window.
+Switching from anchor A to anchor B reuses that tab and navigates it to B's
+saved home page. A popped-out anchor remains the single anchor tab of its new
+window.
+
+The **Keep anchor tabs open** setting restores the original behavior: every
+opened anchor keeps a separate tab until the user closes it. **Sleep** can
+discard those tabs to save memory, but does not remove them from the tab strip.
+Auto-archive only closes regular, unbound tabs.
+
+Unpinning an anchor or deleting its space never closes a possibly important
+page. Its live tab becomes a regular Today tab and starts a fresh auto-archive
+timer instead.
 
 ## Installation
 
@@ -142,21 +160,27 @@ translation exists under `_locales`, and falls back to English otherwise.
 
 - `panel.html`, `panel.css`, `panel.js` — side-panel UI;
 - `background.js` — service worker and tab maintenance;
-- `shared.js` — persistence and anchor bindings;
+- `tab-state.js` — deterministic anchor-tab lifecycle transitions;
+- `shared.js` — persistent and session storage;
 - `sync.js` — GitHub Gist synchronization;
+- `tests/` — dependency-free lifecycle tests using Node's built-in test runner;
 - `_locales/` — Chrome i18n messages;
 - `icons/` — the Anchors brand and extension icon assets;
 - `DESIGN.md` — visual tokens, component states, and responsive rules;
 - `manifest.json` — Manifest V3 configuration.
 
-There is no build step or runtime dependency. After editing the source, reload
-the unpacked extension from the browser's extension-management page.
+There is no build step or runtime dependency. Run `npm test` for the lifecycle
+tests, then reload the unpacked extension from the browser's extension-management
+page.
 
 ## Known limitations
 
 - Anchors targets Chromium-based browsers.
-- Live tab bindings do not survive a browser restart; the next anchor click
-  opens a new tab.
+- Live tab bindings do not survive a browser restart. Anchors reattaches a
+  restored tab that is still on the exact home URL; otherwise the next click
+  opens or reuses an anchor tab.
+- A live anchor is bound to one browser tab globally. Selecting that same
+  anchor from another window focuses its existing tab and window.
 - The automatic-archive age counter starts again after a browser restart.
 - Gist sync does not merge concurrent changes.
 - Folders support one level of nesting.

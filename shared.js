@@ -17,7 +17,13 @@ export function normalizeUrl(u) {
   }
 }
 
-const SETTINGS_DEFAULTS = { autoResetHours: 6, suspendMinutes: 0, archiveHours: 0, dedup: true };
+const SETTINGS_DEFAULTS = {
+  autoResetHours: 6,
+  suspendMinutes: 0,
+  archiveHours: 0,
+  keepAnchorTabs: false,
+  dedup: true
+};
 
 export async function loadMeta() {
   const { meta } = await chrome.storage.sync.get('meta');
@@ -81,8 +87,8 @@ export async function saveAnchors(spaceId, anchors) {
   const all = await chrome.storage.sync.get(null);
   const stale = Object.keys(all)
     .filter(k => (k === prefix || k.startsWith(prefix + '__')) && !(k in payload));
-  if (stale.length) await chrome.storage.sync.remove(stale);
   await chrome.storage.sync.set(payload);
+  if (stale.length) await chrome.storage.sync.remove(stale);
   await touch();
 }
 

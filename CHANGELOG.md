@@ -2,6 +2,29 @@
 
 All notable changes to Anchors will be documented in this file.
 
+## [0.7.1] — 2026-07-15
+
+### Changed
+
+- Reuse one live anchor tab per browser window by default, preventing the
+  native tab strip from growing with every opened anchor.
+- Added **Keep anchor tabs open** for users who prefer a separate tab and
+  preserved browsing state for every anchor.
+- Unified the extension icon and in-product branding with the anchor glyph
+  used by **Pin current tab**.
+- Serialized runtime tab operations in the background service worker so rapid
+  anchor switches cannot race with tab events or scheduled maintenance.
+
+### Fixed
+
+- Cleared runtime bindings and activity when an anchor is unpinned, its space
+  is deleted, or its browser tab is closed.
+- Repaired stale bindings left by earlier releases and returned their live tabs
+  to Today with a fresh auto-archive timer.
+- Kept side-panel actions attached to the browser window that owns the panel.
+- Kept the background worker available in Vivaldi when it exposes only a
+  partial `sidePanel` API.
+
 ## [0.7.0] — 2026-07-15
 
 ### Changed

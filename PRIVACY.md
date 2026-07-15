@@ -55,6 +55,9 @@ automatically.
 ## Deleting data
 
 - Spaces and notes can be deleted from the extension UI.
+- Unpinning an anchor or deleting its space removes the saved anchor data but
+  leaves any open page as a regular Today tab; Anchors does not silently close
+  a potentially important page.
 - The entire local archive can be cleared from the Archive section.
 - `⚙` → **Disable sync and forget the token** removes the local token. The Gist
   remains in the GitHub account until it is deleted through GitHub.

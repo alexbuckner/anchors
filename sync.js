@@ -58,8 +58,10 @@ async function applyState(state) {
   const data = state.data || state.anchors || {}; // .anchors is the legacy format.
   const all = await chrome.storage.sync.get(null);
   const stale = Object.keys(all).filter(k => isSyncedKey(k) && !(k in data));
+  await chrome.storage.sync.set({ meta: state.meta, ...data });
   if (stale.length) await chrome.storage.sync.remove(stale);
-  await chrome.storage.sync.set({ meta: state.meta, updatedAt: state.updatedAt, ...data });
+  // updatedAt is the commit marker consumed by runtime binding repair.
+  await chrome.storage.sync.set({ updatedAt: state.updatedAt });
 }
 
 // Returns {status}: off | created | linked | pulled | pushed | uptodate.

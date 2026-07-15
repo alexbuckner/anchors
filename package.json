@@ -1,0 +1,10 @@
+{
+  "name": "anchors-extension",
+  "version": "0.7.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "preview": "node tests/preview-server.mjs",
+    "test": "node --test"
+  }
+}

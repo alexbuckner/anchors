@@ -30,9 +30,8 @@
       <symbol id="i-key" viewBox="0 0 16 16"><circle cx="5" cy="8" r="2.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7.6 8h6M11.2 8v2.4M13.6 8v1.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
       <symbol id="i-check" viewBox="0 0 16 16"><path d="M3 8.4l3.2 3.2L13 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-box" viewBox="0 0 16 16"><path d="M2.2 3h11.6v3H2.2zM3.2 6v6.6h9.6V6M6.4 8.8h3.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-tabs" viewBox="0 0 16 16"><rect x="2.4" y="4.2" width="9.4" height="8.6" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5 4.2V3.7a1.5 1.5 0 011.5-1.5h5.1a1.5 1.5 0 011.5 1.5v5.1a1.5 1.5 0 01-1.3 1.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
       <symbol id="i-slash" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4.2 11.8L11.8 4.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
-      <!-- Brand mark: a browser tab moored to a cradle. -->
-      <symbol id="i-brand" viewBox="0 0 128 128"><rect x="36" y="24" width="56" height="40" rx="11" fill="none" stroke="currentColor" stroke-width="10" stroke-linejoin="round"/><path d="M64 64v38" stroke="currentColor" stroke-width="10" stroke-linecap="round"/><path d="M38 82a26 26 0 0052 0" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round"/></symbol>
       <!-- Space icons: same family, used by the space-icon picker. -->
       <symbol id="s-home" viewBox="0 0 16 16"><path d="M2.8 7.6L8 3l5.2 4.6M4.2 6.8V13h7.6V6.8M6.8 13v-3.4h2.4V13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="s-work" viewBox="0 0 16 16"><rect x="2.5" y="5" width="11" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 5V3.9A1.1 1.1 0 017.1 2.8h1.8A1.1 1.1 0 0110 3.9V5M2.5 8.4h11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
@@ -157,6 +156,11 @@
               <option value="180" data-i18n="threeHoursShort">3h</option>
             </select>
           </div>
+          <div class="setting-row" title="Open every anchor in its own browser tab" data-i18n-title="keepAnchorTabsHint">
+            <svg class="icon" width="15" height="15"><use href="#i-tabs"/></svg>
+            <span class="label" data-i18n="keepAnchorTabsLabel">Keep anchor tabs open</span>
+            <button id="keep-anchor-tabs-toggle" class="switch" role="switch" aria-checked="false" aria-label="Keep anchor tabs open" data-i18n-aria="keepAnchorTabsLabel"></button>
+          </div>
           <div class="setting-row" title="Close old unbound tabs into the archive" data-i18n-title="archiveHint">
             <svg class="icon" width="15" height="15"><use href="#i-box"/></svg>
             <span class="label" data-i18n="archiveAfterLabel">Auto-archive</span>
@@ -214,7 +218,7 @@
         </div>
 
         <div id="about">
-          <svg class="icon" width="15" height="15"><use href="#i-brand"/></svg>
+          <svg class="icon" width="15" height="15"><use href="#i-anchor"/></svg>
           <span>Anchors</span>
           <span class="ver" id="about-version"></span>
         </div>

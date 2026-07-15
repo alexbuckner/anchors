@@ -59,6 +59,18 @@
   "sleepHint": {
     "message": "Discard inactive anchor tabs to save memory"
   },
+  "keepAnchorTabsLabel": {
+    "message": "Keep anchor tabs open"
+  },
+  "keepAnchorTabsHint": {
+    "message": "Open every anchor in its own browser tab"
+  },
+  "keepAnchorTabsEnabledToast": {
+    "message": "Anchors will keep separate tabs open"
+  },
+  "keepAnchorTabsDisabledToast": {
+    "message": "Anchors will reuse the active anchor tab"
+  },
   "archiveHint": {
     "message": "Close old unbound tabs into the archive"
   },
@@ -133,6 +145,12 @@
   },
   "saveError": {
     "message": "Save failed: $ERROR$",
+    "placeholders": {
+      "error": { "content": "$1" }
+    }
+  },
+  "tabActionError": {
+    "message": "Tab action failed: $ERROR$",
     "placeholders": {
       "error": { "content": "$1" }
     }

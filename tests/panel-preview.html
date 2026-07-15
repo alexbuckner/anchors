@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Anchors panel preview</title>
+  <style>
+    html, body, iframe { width: 100%; height: 100%; margin: 0; border: 0; overflow: hidden; background: #17181b; }
+    iframe { display: block; }
+  </style>
+</head>
+<body>
+  <iframe title="Anchors panel preview"></iframe>
+  <script type="module">
+    const [panelMarkup, messages] = await Promise.all([
+      fetch('/panel.html').then(response => response.text()),
+      fetch('/_locales/en/messages.json').then(response => response.json())
+    ]);
+    const prepared = panelMarkup
+      .replace('<head>', '<head><base href="/">')
+      .replace(
+        '<script type="module" src="panel.js"><\/script>',
+        `<script>window.__ANCHORS_MESSAGES__ = ${JSON.stringify(messages)};<\/script>` +
+        '<script src="/tests/panel-preview-mock.js"><\/script>' +
+        '<script type="module" src="/panel.js"><\/script>'
+      );
+    document.querySelector('iframe').srcdoc = prepared;
+  </script>
+</body>
+</html>

@@ -1,7 +1,7 @@
-# Anchors — visual specification (v0.7.0)
+# Anchors — visual specification (v0.7.1)
 
 This document is the source of truth for the implemented panel design. The
-v0.7.0 source and bundled assets follow these tokens, component rules, states,
+v0.7.1 source and bundled assets follow these tokens, component rules, states,
 and responsive constraints.
 
 ## 1. Design tokens
@@ -92,7 +92,7 @@ Semantic mapping (interface `i-*`):
 | `i-chev` | expand/collapse (rotates 0→90°), select caret (rotated) |
 | `i-dots` | actions menu (rows, space options) |
 | `i-home` | go to home page; Auto-reset setting |
-| `i-anchor` | pin tab (header/Today/menus) |
+| `i-anchor` | Anchors brand glyph; pin tab (header/Today/menus) |
 | `i-x` | close tab, unpin, remove, close sheet, disable sync |
 | `i-search` | archive search; empty Today/no-matches hint |
 | `i-trash` | clear archive, delete space |
@@ -107,6 +107,7 @@ Semantic mapping (interface `i-*`):
 | `i-key` | GitHub token |
 | `i-check` | confirmation, duplicate protection, selected color |
 | `i-box` | auto-archive |
+| `i-tabs` | keep separate anchor tabs open |
 | `i-slash` | "no icon" choice in the space editor |
 
 Space icons (`s-*`, tokens `icon:<name>`): home, work, code, study, travel,
@@ -118,19 +119,23 @@ not shown in marketing screenshots.
 
 ## 5. Brand mark
 
-Concept: a browser tab moored to a cradle (tab card + stem + open arc).
+The extension icon, the sheet footer, and the **Pin current tab** action use
+one conventional anchor glyph: ring, shank, crossbar, and upward-curving arms.
+The UI source of truth is `#i-anchor` in `panel.html`.
 
-- `icons/anchors.svg` — master, 128 grid: badge `#17181b` r 28 with 2 px
-  `rgba(255,255,255,.09)` ring; glyph `#7c9cff`, stroke 10, round: tab
-  36,24 56×40 r 11 · stem 64,64→102 · arc c(64,82) r 26.
-- `icons/anchors-16.svg` — 16 px optical size: badge-free,
-  stroke 2, tab 2.8,1.8 10.4×5.6 r 2 + arc c(8,10.2) r 5 — the stem drops
-  out at this size so the mark keeps internal air and cannot read as a
-  microphone/USB plug.
-- `icons/anchors-mono.svg` — currentColor variant.
-- PNG set: icon16 (optical geometry) · icon32/48/128 (master geometry) —
+- `icons/anchors.svg` — 128 px master: badge `#17181b` r 28 with a 2 px
+  `rgba(255,255,255,.09)` ring; glyph `#7c9cff`, stroke 12, round caps and
+  joins. Its geometry is an exact 8× scale of `#i-anchor`: ring
+  c(64,27.2) r 12 · shank 64,39.2→112 · crossbar 44.8,57.6→83.2,57.6 ·
+  arms 22.4,76.8 a(41.6)→105.6,76.8.
+- `icons/anchors-16.svg` — badge-free optical size using the literal
+  `#i-anchor` 16 px geometry at stroke 1.5. The ring, shank, crossbar, and
+  arms all remain present so the toolbar icon still reads as an anchor.
+- `icons/anchors-mono.svg` — `currentColor` variant of the same glyph.
+- PNG set: icon16 from the optical source · icon32/48/128 from the master —
   registered in the manifest (`icons`, `action.default_icon`).
-- In-product use: the sheet's brand/version footer row (15 px, `--text3`).
+- In-product use: **Pin current tab**, Today pin actions, menus, and the
+  sheet's brand/version footer row (15 px, `--text3`).
 
 ## 6. Component anatomy
 
@@ -152,7 +157,7 @@ name. Folder row: chevron 12 · 12.5/600 title · tabular count.
 truncates) ··· sliders icon button 28 px. Both open Settings.
 
 **Settings sheet**: bottom sheet, `#1f2024`, top radius 14, max-height
-`min(84%, 560px)`, backdrop `rgba(0,0,0,.44)`; enter 180 ms rise. Head:
+`min(88%, 640px)`, backdrop `rgba(0,0,0,.44)`; enter 180 ms rise. Head:
 13/600 title + close. Body scrolls vertically only (8 px thumb, inset).
 Groups: `--surface` cards, r 10, rows ≥ 40 px, hairline row separators.
 Rows: icon 15 (`--text2`) · label 12.5 (flex, truncates) · control
@@ -218,7 +223,7 @@ active + away, ChatGPT sleeping, 4-entry archive):
 
 - `panel-overview.png` 360×900 — spaces, folder, states, note, Today
 - `panel-archive.png` 360×900 — archive open: search, ages, count
-- `panel-settings.png` 360×720 — full sheet: Tabs / Sync / Data + brand row
+- `panel-settings.png` 360×900 — full sheet: Tabs / Sync / Data + brand row
 - `panel-narrow.png` 280×720 — same overview at minimum width
 - `panel-space-editor.png` 360×720 — editor with Icon/Color labels
 
@@ -228,3 +233,7 @@ Implemented in v0.7.0:
 3. `icons/icon16.png` uses the optical geometry from `icons/anchors-16.svg`,
    while 32/48/128 use the master geometry;
 4. demo and marketing data use `icon:*` tokens rather than emoji.
+
+Added in v0.7.1: `#i-tabs`, the **Keep anchor tabs open** settings row, and a
+single `#i-anchor` geometry shared by the extension icon, pin actions, and the
+brand/version footer.

@@ -2,13 +2,12 @@ import {
   PALETTE, normalizeUrl,
   loadMeta, saveMeta, loadAnchors, saveAnchors, deleteAnchors, cleanupOrphans,
   loadNote, saveNote,
-  getBindings, setBindings, getLastActive, setLastActive
+  getBindings
 } from './shared.js';
 import { syncNow, getSyncConfig, setSyncConfig } from './sync.js';
 
 let meta = null;
 let anchors = [];   // Items are anchors {id,url,title} or folders {id,type:'folder',name,collapsed,children:[]}.
-let currentWindowId = null;
 let renderTimer = null;
 let dragId = null;
 let dragIsFolder = false;
@@ -23,6 +22,16 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 
 function t(key, substitutions) {
   return chrome.i18n.getMessage(key, substitutions) || key;
+}
+
+async function tabState(action, payload = {}) {
+  const response = await chrome.runtime.sendMessage({
+    scope: 'anchors-tab-state',
+    action,
+    ...payload
+  });
+  if (!response?.ok) throw new Error(response?.error || 'Unknown tab error');
+  return response;
 }
 
 function applyI18n() {
@@ -147,13 +156,12 @@ function localFallbackFavicon(pageUrl) {
 }
 
 async function currentWindow() {
-  if (currentWindowId !== null) {
-    const w = await chrome.windows.get(currentWindowId).catch(() => null);
-    if (w) return currentWindowId;
-  }
-  const w = await chrome.windows.getLastFocused({ windowTypes: ['normal'] });
-  currentWindowId = w.id;
-  return currentWindowId;
+  // In a Chrome side panel, getCurrent() is the window that owns this panel.
+  // Fall back for Chromium variants that expose panel.html as a standalone web panel.
+  const current = await chrome.windows.getCurrent().catch(() => null);
+  if (current?.id !== undefined && current.type === 'normal') return current.id;
+  const focused = await chrome.windows.getLastFocused({ windowTypes: ['normal'] });
+  return focused.id;
 }
 
 function activeSpace() {
@@ -173,11 +181,25 @@ function findLoc(id) {
   return null;
 }
 
+function collectAnchorIds(items) {
+  const ids = [];
+  for (const item of items || []) {
+    if (isFolder(item)) {
+      for (const child of item.children || []) ids.push(child.id);
+    } else {
+      ids.push(item.id);
+    }
+  }
+  return ids;
+}
+
 async function persist() {
   try {
     await saveAnchors(activeSpace().id, anchors);
+    return true;
   } catch (e) {
     toast(t('saveError', e.message));
+    return false;
   }
 }
 
@@ -594,8 +616,14 @@ function anchorRow(a, tabs, bindings, depth) {
       danger: true,
       action: async () => {
         const loc = findLoc(a.id);
-        if (loc) loc.arr.splice(loc.index, 1);
-        await persist();
+        if (!loc) return;
+        const [removed] = loc.arr.splice(loc.index, 1);
+        if (!await persist()) {
+          loc.arr.splice(loc.index, 0, removed);
+          render();
+          return;
+        }
+        await tabState('release', { anchorIds: [a.id] }).catch(() => {});
         render();
       }
     }
@@ -904,58 +932,40 @@ async function render(focusSpaceId = null) {
   $('#autoreset').value = String(meta.settings.autoResetHours);
   $('#suspend').value = String(meta.settings.suspendMinutes);
   $('#archive-hours').value = String(meta.settings.archiveHours);
+  $('#keep-anchor-tabs-toggle').setAttribute('aria-checked', String(!!meta.settings.keepAnchorTabs));
   $('#dedup-toggle').setAttribute('aria-checked', String(!!meta.settings.dedup));
 }
 
 // ---------- actions ----------
 
 async function openAnchor(a) {
-  const bindings = await getBindings();
-  const winId = await currentWindow();
-  let tab = bindings[a.id] ? await chrome.tabs.get(bindings[a.id]).catch(() => null) : null;
-
-  if (tab) {
-    if (tab.active && tab.windowId === winId) {
-      await goHome(a, tab);
-    } else {
-      await chrome.tabs.update(tab.id, { active: true });
-      await chrome.windows.update(tab.windowId, { focused: true });
-    }
-  } else {
-    tab = await chrome.tabs.create({ url: a.url, windowId: winId });
-    await bindTab(a, tab);
+  try {
+    await tabState('open', { anchorId: a.id, windowId: await currentWindow() });
+    scheduleRender();
+  } catch (error) {
+    toast(t('tabActionError', error.message));
   }
-  scheduleRender();
 }
 
 async function bindTab(a, tab) {
-  const bindings = await getBindings();
-  bindings[a.id] = tab.id;
-  await setBindings(bindings);
-  const la = await getLastActive();
-  la[a.id] = Date.now();
-  await setLastActive(la);
+  await tabState('bind', { anchorId: a.id, tabId: tab.id });
 }
 
-async function goHome(a, tab = null) {
-  const bindings = await getBindings();
-  if (!tab && bindings[a.id]) tab = await chrome.tabs.get(bindings[a.id]).catch(() => null);
-  if (!tab) return openAnchor(a);
-  if (normalizeUrl(tab.url) !== normalizeUrl(a.url)) {
-    await chrome.tabs.update(tab.id, { url: a.url });
+async function goHome(a) {
+  try {
+    await tabState('goHome', { anchorId: a.id, windowId: await currentWindow() });
+  } catch (error) {
+    toast(t('tabActionError', error.message));
   }
   scheduleRender();
 }
 
 // Move an existing anchor tab to a separate window, or create a new window for it.
 async function popOut(a) {
-  const bindings = await getBindings();
-  const tab = bindings[a.id] ? await chrome.tabs.get(bindings[a.id]).catch(() => null) : null;
-  if (tab) {
-    await chrome.windows.create({ tabId: tab.id, focused: true });
-  } else {
-    const win = await chrome.windows.create({ url: a.url, focused: true });
-    if (win.tabs && win.tabs[0]) await bindTab(a, win.tabs[0]);
+  try {
+    await tabState('popOut', { anchorId: a.id });
+  } catch (error) {
+    toast(t('tabActionError', error.message));
   }
   scheduleRender();
 }
@@ -970,8 +980,21 @@ async function pinTab(tab, folder = null) {
   } else {
     anchors.push(anchor);
   }
-  await persist();
-  await bindTab(anchor, tab);
+  if (!await persist()) {
+    const loc = findLoc(anchor.id);
+    if (loc) loc.arr.splice(loc.index, 1);
+    render();
+    return;
+  }
+  try {
+    await bindTab(anchor, tab);
+  } catch (error) {
+    const loc = findLoc(anchor.id);
+    if (loc) loc.arr.splice(loc.index, 1);
+    await persist();
+    toast(t('tabActionError', error.message));
+    return;
+  }
   render();
 }
 
@@ -1028,11 +1051,7 @@ async function clearSiteData(a) {
   }));
 
   // Reload the bound tab without HTTP cache; Chromium cannot clear that cache per origin.
-  const bindings = await getBindings();
-  if (bindings[a.id]) {
-    const tab = await chrome.tabs.get(bindings[a.id]).catch(() => null);
-    if (tab) await chrome.tabs.reload(tab.id, { bypassCache: true }).catch(() => {});
-  }
+  await tabState('reload', { anchorId: a.id }).catch(() => {});
   toast(t('siteDataClearedToast', [hostname, String(cookies.length)]));
 }
 
@@ -1073,6 +1092,8 @@ function removeSpace(space) {
   showDialog({
     title: t('deleteSpaceDialog', space.name), okText: t('deleteButton'), danger: true,
     onOk: async () => {
+      const removedItems = await loadAnchors(space.id);
+      const removedAnchorIds = collectAnchorIds(removedItems);
       await deleteAnchors(space.id);
       await saveNote(space.id, '');
       meta.spaces = meta.spaces.filter(s => s.id !== space.id);
@@ -1080,6 +1101,7 @@ function removeSpace(space) {
         meta.activeSpaceId = meta.spaces[0].id;
       }
       await saveMeta(meta);
+      await tabState('release', { anchorIds: removedAnchorIds }).catch(() => {});
       anchors = await loadAnchors(meta.activeSpaceId);
       await loadNoteUI();
       render();
@@ -1272,6 +1294,7 @@ async function updateSettingsUI() {
   $('#sync-token .label').textContent = cfg.token ? t('replaceGitHubTokenAction') : t('connectGitHubAction');
   $('#sync-now').disabled = !cfg.token;
   $('#sync-disable').disabled = !cfg.token;
+  $('#keep-anchor-tabs-toggle').setAttribute('aria-checked', String(!!meta.settings.keepAnchorTabs));
   $('#dedup-toggle').setAttribute('aria-checked', String(!!meta.settings.dedup));
 }
 
@@ -1304,6 +1327,7 @@ async function init() {
   applyI18n();
   meta = await loadMeta();
   await cleanupOrphans(meta).catch(() => {});
+  await tabState('repair').catch(() => {});
   anchors = await loadAnchors(activeSpace().id);
   await loadNoteUI();
 
@@ -1370,6 +1394,14 @@ async function init() {
   // Settings sheet.
   $('#open-settings').onclick = openSettings;
   $('#sync-status').onclick = openSettings;
+  $('#keep-anchor-tabs-toggle').onclick = async () => {
+    meta.settings.keepAnchorTabs = !meta.settings.keepAnchorTabs;
+    await saveMeta(meta);
+    if (!meta.settings.keepAnchorTabs) await tabState('repair').catch(() => {});
+    await updateSettingsUI();
+    scheduleRender();
+    toast(t(meta.settings.keepAnchorTabs ? 'keepAnchorTabsEnabledToast' : 'keepAnchorTabsDisabledToast'));
+  };
   $('#dedup-toggle').onclick = async () => {
     meta.settings.dedup = !meta.settings.dedup;
     await saveMeta(meta);
@@ -1401,15 +1433,20 @@ async function init() {
     e.target.value = '';
   };
 
+  chrome.tabs.onCreated.addListener(scheduleRender);
   chrome.tabs.onActivated.addListener(scheduleRender);
   chrome.tabs.onRemoved.addListener(scheduleRender);
+  chrome.tabs.onAttached.addListener(scheduleRender);
+  chrome.tabs.onDetached.addListener(scheduleRender);
   chrome.tabs.onUpdated.addListener((id, info) => {
     if (info.status === 'complete' || info.title || info.favIconUrl || info.discarded !== undefined) scheduleRender();
   });
-  chrome.windows.onFocusChanged.addListener((id) => {
-    if (id !== chrome.windows.WINDOW_ID_NONE) { currentWindowId = null; scheduleRender(); }
-  });
+  chrome.windows.onFocusChanged.addListener(scheduleRender);
   chrome.storage.onChanged.addListener(async (changes, area) => {
+    if (area === 'session') {
+      if (changes.bindings || changes.lastActive) scheduleRender();
+      return;
+    }
     if (area === 'local') {
       if (changes.archive) renderArchive();
       if (changes.syncConfig) {
