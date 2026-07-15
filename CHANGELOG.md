@@ -2,6 +2,26 @@
 
 All notable changes to Anchors will be documented in this file.
 
+## [0.7.0] — 2026-07-15
+
+### Changed
+
+- Redesigned the side panel with a compact Windows-native visual system,
+  unified SVG controls, clearer anchor states, and responsive layouts down to
+  280 pixels.
+- Added 14 custom space icons while preserving existing emoji icons.
+- Moved tab, sync, and data controls into an accessible Settings sheet.
+- Added Anchors extension icons at 16, 32, 48, and 128 pixels.
+- Improved keyboard navigation, focus handling, contrast, reduced-motion
+  behavior, archive search, empty states, and sync-status feedback.
+- Replaced the remote favicon fallback with a locally generated monogram.
+
+### Fixed
+
+- Prevented drag and drop from creating unsupported nested folders.
+- Preserved keyboard focus after switching spaces.
+- Prevented duplicate Settings overlays during rapid activation.
+
 ## [0.6.3] — 2026-07-14
 
 Initial public release.

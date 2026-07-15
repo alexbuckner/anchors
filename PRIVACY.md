@@ -35,9 +35,9 @@ Revoke it in GitHub after disabling sync if it is no longer needed.
 ## External requests
 
 - When Gist sync is enabled, Anchors connects to `api.github.com`.
-- Favicons are loaded through Chromium's internal API first. If that fails,
-  Anchors requests an icon from `icons.duckduckgo.com`; that request includes the
-  website hostname.
+- Favicons are loaded through Chromium's internal API. If no icon is available,
+  Anchors generates a local monogram without sending the website hostname to a
+  third-party favicon service.
 
 The extension code uses no other external services.
 

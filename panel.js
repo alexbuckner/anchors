@@ -11,12 +11,15 @@ let anchors = [];   // Items are anchors {id,url,title} or folders {id,type:'fol
 let currentWindowId = null;
 let renderTimer = null;
 let dragId = null;
+let dragIsFolder = false;
 let noteOpen = false;
 let archiveOpen = false;
 let noteTimer = null;
 let importing = false; // Ignore storage.onChanged while an import is writing multiple related keys.
+let settingsOpening = false;
 
 const $ = (sel) => document.querySelector(sel);
+const SVG_NS = 'http://www.w3.org/2000/svg';
 
 function t(key, substitutions) {
   return chrome.i18n.getMessage(key, substitutions) || key;
@@ -33,9 +36,85 @@ function applyI18n() {
   document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
     el.placeholder = t(el.dataset.i18nPlaceholder);
   });
+  document.querySelectorAll('[data-i18n-aria]').forEach((el) => {
+    el.setAttribute('aria-label', t(el.dataset.i18nAria));
+  });
 }
 
 const isFolder = (item) => item && item.type === 'folder';
+
+// Inline SVG icon from the sprite in panel.html.
+function icon(name, size = 14) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', 'icon');
+  svg.setAttribute('width', size);
+  svg.setAttribute('height', size);
+  svg.setAttribute('aria-hidden', 'true');
+  const use = document.createElementNS(SVG_NS, 'use');
+  use.setAttribute('href', '#' + name);
+  svg.appendChild(use);
+  return svg;
+}
+
+// ---------- space icons ----------
+// A space icon is stored as a stable token ('icon:home'), a legacy emoji
+// string, or ''. Emoji from existing user data keep rendering as-is.
+
+const SPACE_ICONS = [
+  ['icon:home', 's-home', 'iconHome'],
+  ['icon:work', 's-work', 'iconWork'],
+  ['icon:code', 's-code', 'iconCode'],
+  ['icon:study', 's-study', 'iconStudy'],
+  ['icon:travel', 's-travel', 'iconTravel'],
+  ['icon:finance', 's-finance', 'iconFinance'],
+  ['icon:shopping', 's-shopping', 'iconShopping'],
+  ['icon:media', 's-media', 'iconMedia'],
+  ['icon:music', 's-music', 'iconMusic'],
+  ['icon:gaming', 's-gaming', 'iconGaming'],
+  ['icon:ideas', 's-ideas', 'iconIdeas'],
+  ['icon:projects', 's-projects', 'iconProjects'],
+  ['icon:heart', 's-heart', 'iconHeart'],
+  ['icon:lab', 's-lab', 'iconLab']
+];
+
+const isIconToken = (v) => typeof v === 'string' && v.startsWith('icon:');
+const iconSymbol = (token) => {
+  const hit = SPACE_ICONS.find(i => i[0] === token);
+  return hit ? hit[1] : null;
+};
+
+// Element for a space's icon value: SVG for tokens, text for legacy emoji,
+// null when the space has no icon.
+function spaceGlyphEl(iconVal, size = 14) {
+  if (isIconToken(iconVal)) {
+    const sym = iconSymbol(iconVal);
+    if (sym) return icon(sym, size);
+    return null;
+  }
+  if (iconVal) {
+    const s = document.createElement('span');
+    s.textContent = iconVal;
+    return s;
+  }
+  return null;
+}
+
+// 8-bit alpha tint of a hex color, for space-tinted surfaces.
+function alpha(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
+// Collapsible section headers behave like buttons for keyboard users.
+function pressable(el, handler) {
+  el.addEventListener('click', handler);
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handler(e);
+    }
+  });
+}
 
 // Browser-internal pages (vivaldi://, chrome://, the panel itself, and so on)
 // cannot be used as anchors or appear in Today.
@@ -50,12 +129,21 @@ function faviconUrl(pageUrl) {
   return u.toString();
 }
 
-function fallbackFavicon(pageUrl) {
+function localFallbackFavicon(pageUrl) {
+  let hostname = '';
   try {
-    return 'https://icons.duckduckgo.com/ip3/' + new URL(pageUrl).hostname + '.ico';
+    hostname = new URL(pageUrl).hostname.replace(/^www\./, '');
   } catch (e) {
-    return '';
+    // Keep the fallback generic for malformed or missing URLs.
   }
+
+  const label = (hostname.match(/[a-z0-9]/i)?.[0] || '?').toUpperCase();
+  let hash = 0;
+  for (const char of hostname) hash = ((hash * 31) + char.charCodeAt(0)) >>> 0;
+  const colors = ['#3b6bdc', '#147d75', '#8b5cc7', '#b45f2a', '#a13d64', '#4d6b8a'];
+  const background = colors[hash % colors.length];
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><rect width="16" height="16" rx="4" fill="${background}"/><text x="8" y="11.5" text-anchor="middle" font-family="Arial,sans-serif" font-size="10" font-weight="700" fill="white">${label}</text></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
 async function currentWindow() {
@@ -93,6 +181,79 @@ async function persist() {
   }
 }
 
+// ---------- overlay stack ----------
+// One stack for menus, dialogs, and the settings sheet. Escape closes only the
+// topmost overlay; focus returns to the element that opened it; dialogs and
+// the sheet trap Tab.
+
+const overlays = [];
+
+function openOverlay(o) {
+  o.opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  overlays.push(o);
+  return o;
+}
+
+function closeOverlay(o, { restoreFocus = true } = {}) {
+  const i = overlays.indexOf(o);
+  if (i < 0) return;
+  overlays.splice(i, 1);
+  o.onClose();
+  const active = document.activeElement;
+  if (restoreFocus && o.opener && o.opener.isConnected && o.opener !== document.body) {
+    o.opener.focus();
+  } else if (active instanceof HTMLElement && o.el.contains(active)) {
+    active.blur(); // Never leave focus on a control inside a hidden overlay.
+  }
+}
+
+function findOverlay(name) {
+  return overlays.find(o => o.name === name) || null;
+}
+
+function focusables(root) {
+  return [...root.querySelectorAll('button, [href], input, select, textarea, [tabindex]')]
+    .filter(el => !el.disabled && el.tabIndex >= 0 && el.offsetParent !== null);
+}
+
+function trapTab(e, root) {
+  const f = focusables(root);
+  if (!f.length) { e.preventDefault(); return; }
+  const first = f[0], last = f[f.length - 1];
+  const inside = root.contains(document.activeElement);
+  if (e.shiftKey && (!inside || document.activeElement === first)) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && (!inside || document.activeElement === last)) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
+function menuKeydown(e, ov) {
+  const items = [...ov.el.querySelectorAll('button:not(:disabled)')];
+  if (!items.length) return;
+  const idx = items.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown') { e.preventDefault(); items[(idx + 1) % items.length].focus(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); items[(idx - 1 + items.length) % items.length].focus(); }
+  else if (e.key === 'Home') { e.preventDefault(); items[0].focus(); }
+  else if (e.key === 'End') { e.preventDefault(); items[items.length - 1].focus(); }
+  else if (e.key === 'Tab') { e.preventDefault(); closeOverlay(ov); }
+}
+
+document.addEventListener('keydown', (e) => {
+  const top = overlays[overlays.length - 1];
+  if (!top) return;
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    closeOverlay(top);
+    return;
+  }
+  if (top.name === 'menu') { menuKeydown(e, top); return; }
+  if (e.key === 'Tab' && top.trap) trapTab(e, top.el);
+}, true);
+
 // ---------- toasts and dialogs (prompt/confirm do not work in a Vivaldi Web Panel) ----------
 
 let toastTimer = null;
@@ -104,118 +265,212 @@ function toast(msg) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
 }
 
-const SPACE_EMOJIS = ['🏠', '💼', '🎮', '📚', '🎬', '🛒', '✈️', '💰', '🧪', '🎧', '🌐', '❤️'];
+function showDialog({ title, withInput = false, initial = '', inputType = 'text', withColors = false, color = PALETTE[0], withIcon = false, icon: iconValue = '', okText = t('okButton'), danger = false, onOk }) {
+  const existing = findOverlay('dialog');
+  if (existing) closeOverlay(existing, { restoreFocus: false });
 
-function showDialog({ title, withInput = false, initial = '', inputType = 'text', withColors = false, color = PALETTE[0], withIcon = false, icon = '', okText = t('okButton'), onOk }) {
-  const overlay = $('#dialog-overlay');
+  const overlayEl = $('#dialog-overlay');
   $('#dialog-title').textContent = title;
   const input = $('#dialog-input');
   input.style.display = withInput ? '' : 'none';
   input.type = inputType;
   input.value = initial;
+  input.setAttribute('aria-label', title);
 
   let chosenColor = color;
+  let chosenIcon = iconValue;
 
-  const iconRow = $('#dialog-icon-row');
-  iconRow.style.display = withIcon ? '' : 'none';
-  const iconInput = $('#dialog-icon');
-  iconInput.value = icon;
+  const iconsEl = $('#dialog-icons');
+  $('#dialog-icon-label').style.display = withIcon ? '' : 'none';
+  iconsEl.style.display = withIcon ? '' : 'none';
 
-  // Use the space color behind each emoji, matching the final space button.
-  const paintIcons = () => {
-    if (!withIcon) return;
-    document.querySelectorAll('#dialog-icons .icon-pick').forEach(d => {
-      d.style.backgroundColor = chosenColor;
-    });
-    iconInput.style.backgroundColor = chosenColor;
+  const paint = () => {
+    if (withIcon) {
+      iconsEl.querySelectorAll('.icon-pick').forEach(d => {
+        const pressed = d.dataset.value === chosenIcon;
+        d.setAttribute('aria-pressed', String(pressed));
+        d.style.backgroundColor = pressed ? chosenColor : '';
+      });
+    }
+    if (withColors) {
+      $('#dialog-colors').querySelectorAll('.color-dot').forEach(d => {
+        d.setAttribute('aria-pressed', String(d.dataset.value === chosenColor));
+      });
+    }
   };
 
   if (withIcon) {
-    const icons = $('#dialog-icons');
-    icons.innerHTML = '';
-    for (const em of SPACE_EMOJIS) {
-      const d = document.createElement('div');
+    iconsEl.innerHTML = '';
+    const addPick = (value, labelText, contentEl) => {
+      const d = document.createElement('button');
+      d.type = 'button';
       d.className = 'icon-pick';
-      d.textContent = em;
-      d.onclick = () => { iconInput.value = em; };
-      icons.appendChild(d);
+      d.dataset.value = value;
+      d.title = labelText;
+      d.setAttribute('aria-label', labelText);
+      d.setAttribute('aria-pressed', 'false');
+      d.appendChild(contentEl);
+      d.onclick = () => { chosenIcon = value; paint(); };
+      iconsEl.appendChild(d);
+    };
+    addPick('', t('noIconOption'), icon('i-slash', 14));
+    // An existing emoji from older data stays available so editing keeps it.
+    if (iconValue && !isIconToken(iconValue)) {
+      const em = document.createElement('span');
+      em.textContent = iconValue;
+      addPick(iconValue, iconValue, em);
+    }
+    for (const [token, sym, labelKey] of SPACE_ICONS) {
+      addPick(token, t(labelKey), icon(sym, 14));
     }
   }
 
   const colorsEl = $('#dialog-colors');
+  $('#dialog-color-label').style.display = withColors ? '' : 'none';
   colorsEl.style.display = withColors ? '' : 'none';
   if (withColors) {
     colorsEl.innerHTML = '';
-    for (const c of PALETTE) {
-      const dot = document.createElement('div');
-      dot.className = 'color-dot' + (c === chosenColor ? ' chosen' : '');
+    const colorNames = ['colorBlue', 'colorCoral', 'colorGreen', 'colorYellow', 'colorPurple', 'colorCyan', 'colorPink'];
+    PALETTE.forEach((c, i) => {
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = 'color-dot';
+      dot.dataset.value = c;
       dot.style.backgroundColor = c;
-      dot.onclick = () => {
-        chosenColor = c;
-        colorsEl.querySelectorAll('.color-dot').forEach(d => d.classList.remove('chosen'));
-        dot.classList.add('chosen');
-        paintIcons();
-      };
+      dot.style.color = c;
+      dot.title = t(colorNames[i] || 'spaceColorGroup');
+      dot.setAttribute('aria-label', t(colorNames[i] || 'spaceColorGroup'));
+      dot.setAttribute('aria-pressed', 'false');
+      dot.appendChild(icon('i-check', 11));
+      dot.onclick = () => { chosenColor = c; paint(); };
       colorsEl.appendChild(dot);
-    }
+    });
   }
-  paintIcons();
+  paint();
 
-  const close = () => { overlay.style.display = 'none'; };
-  $('#dialog-ok').textContent = okText;
-  $('#dialog-ok').onclick = () => {
+  const ok = $('#dialog-ok');
+  ok.textContent = okText;
+  ok.classList.toggle('danger', danger);
+
+  const ov = openOverlay({
+    name: 'dialog',
+    el: $('#dialog'),
+    trap: true,
+    onClose: () => { overlayEl.classList.remove('show'); }
+  });
+
+  ok.onclick = () => {
     if (withInput && !input.value.trim()) return;
-    close();
-    onOk(input.value.trim(), chosenColor, iconInput.value.trim());
+    closeOverlay(ov);
+    onOk(input.value.trim(), chosenColor, chosenIcon.trim ? chosenIcon.trim() : chosenIcon);
   };
-  $('#dialog-cancel').onclick = close;
+  $('#dialog-cancel').onclick = () => closeOverlay(ov);
+  overlayEl.onclick = (e) => { if (e.target === overlayEl) closeOverlay(ov); };
   input.onkeydown = (e) => {
-    if (e.key === 'Enter') $('#dialog-ok').click();
-    if (e.key === 'Escape') close();
+    if (e.key === 'Enter') ok.click();
   };
-  overlay.style.display = 'flex';
+  overlayEl.classList.add('show');
   if (withInput) { input.focus(); input.select(); }
+  else ok.focus();
 }
 
 // ---------- context menu ----------
 
-function closeMenu() {
-  $('#menu')?.remove();
-}
-
+// items: {icon, label, danger, disabled, action} or {sep:true}
 function showMenu(anchorEl, items) {
-  closeMenu();
+  const existing = findOverlay('menu');
+  if (existing) closeOverlay(existing, { restoreFocus: false });
+
   const menu = document.createElement('div');
   menu.id = 'menu';
+  menu.setAttribute('role', 'menu');
+
+  const onDocClick = () => closeOverlay(ov, { restoreFocus: false });
+  const ov = openOverlay({
+    name: 'menu',
+    el: menu,
+    trap: false,
+    onClose: () => {
+      menu.remove();
+      document.removeEventListener('click', onDocClick);
+    }
+  });
+
   for (const it of items) {
+    if (it.sep) {
+      const sep = document.createElement('div');
+      sep.className = 'sep';
+      menu.appendChild(sep);
+      continue;
+    }
     const btn = document.createElement('button');
-    btn.textContent = it.label;
+    btn.setAttribute('role', 'menuitem');
+    btn.tabIndex = -1;
+    if (it.icon) btn.appendChild(icon(it.icon));
+    const label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = it.label;
+    btn.appendChild(label);
+    if (it.danger) btn.classList.add('danger');
     if (it.disabled) btn.disabled = true;
-    btn.onclick = () => { closeMenu(); it.action(); };
+    btn.onclick = () => { closeOverlay(ov); it.action(); };
     menu.appendChild(btn);
   }
   document.body.appendChild(menu);
   const r = anchorEl.getBoundingClientRect();
   const mh = menu.offsetHeight;
-  menu.style.left = Math.max(8, r.right - menu.offsetWidth) + 'px';
-  menu.style.top = (r.bottom + mh > window.innerHeight ? r.top - mh : r.bottom) + 'px';
-  setTimeout(() => document.addEventListener('click', closeMenu, { once: true }), 0);
+  menu.style.left = Math.max(8, Math.min(r.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8)) + 'px';
+  menu.style.top = Math.max(8, r.bottom + mh > window.innerHeight - 8 ? r.top - mh : r.bottom) + 'px';
+  const first = menu.querySelector('button:not(:disabled)');
+  if (first) { first.tabIndex = 0; first.focus(); }
+  setTimeout(() => document.addEventListener('click', onDocClick), 0);
 }
 
 // ---------- drag and drop ----------
 
+function clearDropMarks(li) {
+  li.classList.remove('drop-before', 'drop-into');
+}
+
 function makeDraggable(li, item) {
   li.draggable = true;
   li.dataset.id = item.id;
-  li.ondragstart = (e) => { dragId = item.id; li.classList.add('dragging'); e.stopPropagation(); };
-  li.ondragend = () => { dragId = null; li.classList.remove('dragging'); };
-  li.ondragover = (e) => { e.preventDefault(); e.stopPropagation(); };
+  li.ondragstart = (e) => {
+    dragId = item.id;
+    dragIsFolder = isFolder(item);
+    li.classList.add('dragging');
+    e.stopPropagation();
+  };
+  li.ondragend = () => {
+    dragId = null;
+    li.classList.remove('dragging');
+    document.querySelectorAll('.drop-before, .drop-into').forEach(clearDropMarks);
+  };
+  li.ondragover = (e) => {
+    e.stopPropagation();
+    if (!dragId || dragId === item.id) return;
+    const dst = findLoc(item.id);
+    if (dragIsFolder && dst && dst.arr !== anchors) {
+      clearDropMarks(li);
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+      return;
+    }
+    e.preventDefault();
+    li.classList.toggle('drop-into', isFolder(item) && !dragIsFolder);
+    li.classList.toggle('drop-before', !(isFolder(item) && !dragIsFolder));
+  };
+  li.ondragleave = () => clearDropMarks(li);
   li.ondrop = async (e) => {
     e.preventDefault();
     e.stopPropagation();
+    clearDropMarks(li);
     if (!dragId || dragId === item.id) return;
     const src = findLoc(dragId);
-    if (!src) return;
+    const target = findLoc(item.id);
+    if (!src || !target) return;
+    // A folder may only live at the top level. Reject before mutating so an
+    // invalid drop leaves the source array and its ordering untouched.
+    if (isFolder(src.item) && target.arr !== anchors) return;
     const [moved] = src.arr.splice(src.index, 1);
     const dst = findLoc(item.id);
     if (!dst) { src.arr.splice(src.index, 0, moved); return; }
@@ -240,88 +495,136 @@ function scheduleRender() {
   renderTimer = setTimeout(render, 150);
 }
 
-function anchorRow(a, tabs, bindings, depth) {
-  const li = document.createElement('li');
-  if (depth > 0) li.classList.add('depth1');
+function rowButton(iconName, title, onClick) {
+  const btn = document.createElement('button');
+  btn.className = 'btn';
+  btn.tabIndex = -1; // Every row action is also in the context menu.
+  btn.title = title;
+  btn.setAttribute('aria-label', title);
+  btn.appendChild(icon(iconName));
+  btn.onclick = onClick;
+  return btn;
+}
 
+// li.row = non-interactive shell; button.row-main = the primary action.
+function rowShell(mainLabel, onOpen) {
+  const li = document.createElement('li');
+  li.className = 'row';
+  const main = document.createElement('button');
+  main.className = 'row-main';
+  main.setAttribute('aria-label', mainLabel);
+  main.onclick = (e) => { e.stopPropagation(); onOpen(); };
+  li.appendChild(main);
+  li.onclick = (e) => { if (e.target === li) main.click(); };
+  return { li, main };
+}
+
+function emptyHint(iconName, text) {
+  const li = document.createElement('li');
+  li.className = 'empty-hint';
+  li.appendChild(icon(iconName));
+  li.appendChild(document.createTextNode(text));
+  return li;
+}
+
+function anchorRow(a, tabs, bindings, depth) {
   const boundTab = bindings[a.id] ? tabs.find(t => t.id === bindings[a.id]) : null;
   const isAway = boundTab && normalizeUrl(boundTab.url) !== normalizeUrl(a.url);
+  const isAsleep = boundTab && boundTab.discarded;
+
+  let label = a.title || a.url;
+  if (isAway) label += ' — ' + t('awayTitle');
+  if (isAsleep) label += ' — ' + t('sleepingTitle');
+
+  const { li, main } = rowShell(label, () => openAnchor(a));
+  if (depth > 0) li.classList.add('depth1');
   if (boundTab && boundTab.active) li.classList.add('active');
   if (isAway) li.classList.add('away');
-  if (boundTab && boundTab.discarded) li.classList.add('asleep');
+  if (isAsleep) li.classList.add('asleep');
 
   const img = document.createElement('img');
   img.className = 'favicon';
+  img.alt = '';
   img.src = faviconUrl(a.url);
-  img.onerror = () => { img.onerror = null; img.src = fallbackFavicon(a.url); };
+  img.onerror = () => { img.onerror = null; img.src = localFallbackFavicon(a.url); };
 
   const title = document.createElement('span');
   title.className = 'title';
   title.textContent = a.title || a.url;
-  title.title = a.url;
+  main.title = isAway ? a.url + ' — ' + t('awayTitle') : a.url;
 
-  const homeBtn = document.createElement('button');
-  homeBtn.className = 'btn';
-  homeBtn.textContent = '⌂';
-  homeBtn.title = t('returnHomeTitle');
-  homeBtn.onclick = (e) => { e.stopPropagation(); goHome(a); };
+  const awayDot = document.createElement('span');
+  awayDot.className = 'away-dot';
+  awayDot.title = t('awayTitle');
 
-  const menuBtn = document.createElement('button');
-  menuBtn.className = 'btn';
-  menuBtn.textContent = '⋯';
-  menuBtn.title = t('actionsTitle');
-  menuBtn.onclick = (e) => {
-    e.stopPropagation();
-    showMenu(li, [
-      { label: t('goHomeAction'), action: () => goHome(a) },
-      { label: t('popOutAction'), action: () => popOut(a) },
-      {
-        label: t('makeCurrentHomeAction'),
-        disabled: !isAway,
-        action: async () => {
-          a.url = boundTab.url;
-          await persist();
-          toast(t('homeUpdatedToast'));
-          render();
-        }
-      },
-      { label: t('clearSiteDataAction'), action: () => clearSiteData(a) },
-      {
-        label: t('renameAction'),
-        action: () => showDialog({
-          title: t('anchorNameDialog'), withInput: true, initial: a.title || '',
-          onOk: async (name) => {
-            a.title = name;
-            await persist();
-            render();
-          }
-        })
-      },
-      {
-        label: t('unpinAction'),
-        action: async () => {
-          const loc = findLoc(a.id);
-          if (loc) loc.arr.splice(loc.index, 1);
-          await persist();
-          render();
-        }
+  const sleepIcon = icon('i-moon', 12);
+  sleepIcon.classList.add('sleep-icon');
+
+  const menuItems = () => [
+    { icon: 'i-home', label: t('goHomeAction'), action: () => goHome(a) },
+    { icon: 'i-pop', label: t('popOutAction'), action: () => popOut(a) },
+    {
+      icon: 'i-anchor',
+      label: t('makeCurrentHomeAction'),
+      disabled: !isAway,
+      action: async () => {
+        a.url = boundTab.url;
+        await persist();
+        toast(t('homeUpdatedToast'));
+        render();
       }
-    ]);
-  };
+    },
+    { icon: 'i-cookie', label: t('clearSiteDataAction'), action: () => clearSiteData(a) },
+    { sep: true },
+    {
+      icon: 'i-pencil',
+      label: t('renameAction'),
+      action: () => showDialog({
+        title: t('anchorNameDialog'), withInput: true, initial: a.title || '', okText: t('saveButton'),
+        onOk: async (name) => {
+          a.title = name;
+          await persist();
+          render();
+        }
+      })
+    },
+    {
+      icon: 'i-x',
+      label: t('unpinAction'),
+      danger: true,
+      action: async () => {
+        const loc = findLoc(a.id);
+        if (loc) loc.arr.splice(loc.index, 1);
+        await persist();
+        render();
+      }
+    }
+  ];
 
-  li.append(img, title, homeBtn, menuBtn);
-  li.onclick = () => openAnchor(a);
+  const btns = document.createElement('span');
+  btns.className = 'btns';
+  btns.appendChild(rowButton('i-home', t('returnHomeTitle'), (e) => { e.stopPropagation(); goHome(a); }));
+  btns.appendChild(rowButton('i-dots', t('actionsTitle'), (e) => { e.stopPropagation(); showMenu(li, menuItems()); }));
+
+  main.append(img, title, awayDot, sleepIcon);
+  li.appendChild(btns);
+  li.oncontextmenu = (e) => { e.preventDefault(); showMenu(li, menuItems()); };
   makeDraggable(li, a);
   return li;
 }
 
 function folderRow(f) {
-  const li = document.createElement('li');
+  const { li, main } = rowShell(f.name, async () => {
+    f.collapsed = !f.collapsed;
+    await persist();
+    render();
+  });
   li.classList.add('folder');
+  main.setAttribute('aria-expanded', String(!f.collapsed));
 
-  const twisty = document.createElement('span');
-  twisty.className = 'twisty';
-  twisty.textContent = f.collapsed ? '▸' : '▾';
+  const twisty = icon('i-chev', 12);
+  twisty.classList.add('twisty');
+  if (!f.collapsed) twisty.classList.add('open');
 
   const title = document.createElement('span');
   title.className = 'title';
@@ -331,57 +634,67 @@ function folderRow(f) {
   count.className = 'count';
   count.textContent = (f.children || []).length || '';
 
-  const menuBtn = document.createElement('button');
-  menuBtn.className = 'btn';
-  menuBtn.textContent = '⋯';
-  menuBtn.title = t('actionsTitle');
-  menuBtn.onclick = (e) => {
-    e.stopPropagation();
-    showMenu(li, [
-      {
-        label: t('pinCurrentHereAction'),
-        action: () => addCurrentTab(f)
-      },
-      {
-        label: t('renameAction'),
-        action: () => showDialog({
-          title: t('folderNameDialog'), withInput: true, initial: f.name,
-          onOk: async (name) => {
-            f.name = name;
-            await persist();
-            render();
-          }
-        })
-      },
-      {
-        label: t('deleteFolderAction'),
-        action: async () => {
-          const loc = findLoc(f.id);
-          if (!loc) return;
-          loc.arr.splice(loc.index, 1, ...(f.children || []));
+  const menuItems = () => [
+    { icon: 'i-anchor', label: t('pinCurrentHereAction'), action: () => addCurrentTab(f) },
+    {
+      icon: 'i-pencil',
+      label: t('renameAction'),
+      action: () => showDialog({
+        title: t('folderNameDialog'), withInput: true, initial: f.name, okText: t('saveButton'),
+        onOk: async (name) => {
+          f.name = name;
           await persist();
           render();
         }
+      })
+    },
+    { sep: true },
+    {
+      icon: 'i-x',
+      label: t('deleteFolderAction'),
+      danger: true,
+      action: async () => {
+        const loc = findLoc(f.id);
+        if (!loc) return;
+        loc.arr.splice(loc.index, 1, ...(f.children || []));
+        await persist();
+        render();
       }
-    ]);
-  };
+    }
+  ];
 
-  li.append(twisty, title, count, menuBtn);
-  li.onclick = async () => {
-    f.collapsed = !f.collapsed;
-    await persist();
-    render();
-  };
+  const btns = document.createElement('span');
+  btns.className = 'btns';
+  btns.appendChild(rowButton('i-dots', t('actionsTitle'), (e) => { e.stopPropagation(); showMenu(li, menuItems()); }));
+
+  main.append(twisty, title, count);
+  li.appendChild(btns);
+  li.oncontextmenu = (e) => { e.preventDefault(); showMenu(li, menuItems()); };
   makeDraggable(li, f);
   return li;
+}
+
+// Short relative age for archive entries ("5h ago", "3d ago").
+let rtf = null;
+function ageLabel(at) {
+  if (!at) return '';
+  try {
+    if (!rtf) rtf = new Intl.RelativeTimeFormat(chrome.i18n.getMessage('@@ui_locale') || 'en', { style: 'narrow' });
+    const hours = Math.round((at - Date.now()) / 36e5);
+    if (hours > -1) return '';
+    return hours > -24 ? rtf.format(hours, 'hour') : rtf.format(Math.round(hours / 24), 'day');
+  } catch (e) {
+    return '';
+  }
 }
 
 async function renderArchive() {
   const { archive } = await chrome.storage.local.get('archive');
   const arch = archive || [];
-  $('#archive-count').textContent = arch.length ? `(${arch.length})` : '';
-  $('#archive-twisty').textContent = archiveOpen ? '▾' : '▸';
-  $('#archive-search').style.display = archiveOpen && arch.length ? '' : 'none';
+  $('#archive-count').textContent = arch.length ? String(arch.length) : '';
+  $('#archive-twisty').classList.toggle('open', archiveOpen);
+  $('#archive-head').setAttribute('aria-expanded', String(archiveOpen));
+  $('#archive-search-wrap').style.display = archiveOpen && arch.length ? '' : 'none';
   $('#archive-clear').style.display = archiveOpen && arch.length ? '' : 'none';
 
   const list = $('#archive');
@@ -393,80 +706,136 @@ async function renderArchive() {
     ? arch.filter(e => (e.title || '').toLowerCase().includes(q) || (e.url || '').toLowerCase().includes(q))
     : arch;
 
+  if (!filtered.length && arch.length) {
+    list.appendChild(emptyHint('i-search', t('noMatchesHint')));
+    return;
+  }
+
   for (const entry of filtered.slice(0, 100)) {
-    const li = document.createElement('li');
-
-    const img = document.createElement('img');
-    img.className = 'favicon';
-    img.src = faviconUrl(entry.url);
-    img.onerror = () => { img.onerror = null; img.src = fallbackFavicon(entry.url); };
-
-    const title = document.createElement('span');
-    title.className = 'title';
-    title.textContent = entry.title || entry.url;
-    title.title = entry.url;
-
-    const delBtn = document.createElement('button');
-    delBtn.className = 'btn';
-    delBtn.textContent = '✕';
-    delBtn.title = t('removeFromArchiveTitle');
-    delBtn.onclick = async (e) => {
-      e.stopPropagation();
+    const removeEntry = async () => {
       const { archive: cur } = await chrome.storage.local.get('archive');
       await chrome.storage.local.set({ archive: (cur || []).filter(x => x !== null && !(x.url === entry.url && x.at === entry.at)) });
       renderArchive();
     };
-
-    li.append(img, title, delBtn);
-    li.onclick = async (e) => {
+    const { li, main } = rowShell(entry.title || entry.url, async () => {
       const winId = await currentWindow();
       await chrome.tabs.create({ url: entry.url, windowId: winId });
-      const { archive: cur } = await chrome.storage.local.get('archive');
-      await chrome.storage.local.set({ archive: (cur || []).filter(x => x !== null && !(x.url === entry.url && x.at === entry.at)) });
-      renderArchive();
+      await removeEntry();
+    });
+    main.title = t('restoreFromArchiveTitle');
+
+    const img = document.createElement('img');
+    img.className = 'favicon';
+    img.alt = '';
+    img.src = faviconUrl(entry.url);
+    img.onerror = () => { img.onerror = null; img.src = localFallbackFavicon(entry.url); };
+
+    const title = document.createElement('span');
+    title.className = 'title';
+    title.textContent = entry.title || entry.url;
+
+    const age = document.createElement('span');
+    age.className = 'age';
+    age.textContent = ageLabel(entry.at);
+
+    const btns = document.createElement('span');
+    btns.className = 'btns';
+    btns.appendChild(rowButton('i-x', t('removeFromArchiveTitle'), (e) => { e.stopPropagation(); removeEntry(); }));
+
+    main.append(img, title, age);
+    li.appendChild(btns);
+    li.oncontextmenu = (e) => {
+      e.preventDefault();
+      showMenu(li, [
+        { icon: 'i-pop', label: t('restoreFromArchiveTitle'), action: () => main.click() },
+        { icon: 'i-x', label: t('removeFromArchiveTitle'), danger: true, action: removeEntry }
+      ]);
     };
     list.appendChild(li);
   }
 }
 
-async function render() {
+// Footer sync status chip.
+async function updateSyncStatus() {
+  const cfg = await getSyncConfig();
+  const chip = $('#sync-status');
+  chip.classList.toggle('on', !!cfg.token);
+  $('#sync-status-label').textContent = cfg.token
+    ? (cfg.lastSyncAt
+      ? t('syncedShort', new Date(cfg.lastSyncAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+      : t('syncEnabledStatus'))
+    : t('syncOffShort');
+}
+
+async function render(focusSpaceId = null) {
+  const focusedTile = document.activeElement instanceof HTMLElement
+    ? document.activeElement.closest('#spaces .tile')
+    : null;
+  const preservedFocusSpaceId = focusSpaceId || focusedTile?.dataset.spaceId || null;
   const space = activeSpace();
   const winId = await currentWindow();
   const bindings = await getBindings();
   const tabs = await chrome.tabs.query({ windowId: winId });
   const boundTabIds = new Set(Object.values(bindings));
 
-  // Spaces.
+  // The active space color drives every accent in the panel.
+  document.documentElement.style.setProperty('--sp', space.color);
+
+  // Spaces: a tablist with roving tabindex; arrows move focus, Enter/Space activate.
   const spacesEl = $('#spaces');
   spacesEl.innerHTML = '';
+  let replacementFocusTile = null;
   for (const s of meta.spaces) {
-    const dot = document.createElement('div');
-    dot.className = 'space-dot' + (s.id === space.id ? ' active' : '');
-    dot.style.backgroundColor = s.color;
-    dot.style.color = s.color;
-    dot.textContent = s.icon || s.name[0]?.toUpperCase() || '?';
-    if (s.icon) dot.classList.add('has-icon');
-    dot.title = s.name;
-    dot.onclick = async () => {
+    const active = s.id === space.id;
+    const tile = document.createElement('button');
+    tile.className = 'tile' + (active ? ' on' : '');
+    tile.setAttribute('role', 'tab');
+    tile.setAttribute('aria-selected', String(active));
+    tile.dataset.spaceId = s.id;
+    tile.tabIndex = active ? 0 : -1;
+    tile.style.setProperty('--tile-color', s.color);
+    tile.style.setProperty('--tile-tint', alpha(s.color, 0.15));
+    tile.style.setProperty('--tile-tint-hover', alpha(s.color, 0.3));
+    const glyph = spaceGlyphEl(s.icon, 14);
+    if (glyph) {
+      if (glyph.tagName === 'svg') tile.appendChild(glyph);
+      else { tile.classList.add('has-icon'); tile.appendChild(glyph); }
+    } else {
+      tile.textContent = s.name[0]?.toUpperCase() || '?';
+    }
+    tile.title = s.name;
+    tile.setAttribute('aria-label', s.name);
+    tile.onclick = async () => {
+      const restoreFocus = document.activeElement === tile;
       meta.activeSpaceId = s.id;
       await saveMeta(meta);
       anchors = await loadAnchors(s.id);
       await loadNoteUI();
-      render();
+      await render(restoreFocus ? s.id : null);
     };
-    dot.ondblclick = () => editSpace(s);
-    dot.oncontextmenu = (e) => {
+    tile.ondblclick = () => editSpace(s);
+    tile.oncontextmenu = (e) => {
       e.preventDefault();
-      showMenu(dot, [
-        { label: t('editSpaceAction'), action: () => editSpace(s) },
-        { label: t('deleteSpaceAction'), disabled: meta.spaces.length <= 1, action: () => removeSpace(s) }
+      showMenu(tile, [
+        { icon: 'i-pencil', label: t('editSpaceAction'), action: () => editSpace(s) },
+        { icon: 'i-trash', label: t('deleteSpaceAction'), danger: true, disabled: meta.spaces.length <= 1, action: () => removeSpace(s) }
       ]);
     };
-    spacesEl.appendChild(dot);
+    spacesEl.appendChild(tile);
+    if (s.id === preservedFocusSpaceId) replacementFocusTile = tile;
   }
-  const sn = $('#space-name');
-  sn.textContent = (space.icon ? space.icon + ' ' : '') + space.name;
-  sn.style.color = space.color;
+  if (replacementFocusTile) replacementFocusTile.focus();
+
+  const glyphHost = $('#space-glyph');
+  glyphHost.innerHTML = '';
+  const headGlyph = spaceGlyphEl(space.icon, 15);
+  if (headGlyph) glyphHost.appendChild(headGlyph);
+  else {
+    const dot = document.createElement('span');
+    dot.className = 'glyph-dot';
+    glyphHost.appendChild(dot);
+  }
+  $('#space-name').textContent = space.name;
 
   // Anchors and folders.
   const list = $('#anchors');
@@ -483,51 +852,59 @@ async function render() {
       list.appendChild(anchorRow(item, tabs, bindings, 0));
     }
   }
+  if (!anchors.length) list.appendChild(emptyHint('i-anchor', t('emptyAnchorsHint')));
 
   // Space note.
-  $('#note-twisty').textContent = noteOpen ? '▾' : '▸';
+  $('#note-twisty').classList.toggle('open', noteOpen);
+  $('#note-head').setAttribute('aria-expanded', String(noteOpen));
   $('#note').style.display = noteOpen ? '' : 'none';
 
   // Today contains regular web tabs that are not bound to anchors.
   const today = $('#today');
   today.innerHTML = '';
+  let todayCount = 0;
   for (const tab of tabs) {
     if (tab.pinned || boundTabIds.has(tab.id) || !isWebUrl(tab.url)) continue;
-    const li = document.createElement('li');
+    todayCount++;
+    const { li, main } = rowShell(tab.title || tab.url, () => chrome.tabs.update(tab.id, { active: true }));
     if (tab.active) li.classList.add('active');
+    main.title = tab.url;
 
     const img = document.createElement('img');
     img.className = 'favicon';
+    img.alt = '';
     img.src = tab.favIconUrl || faviconUrl(tab.url);
-    img.onerror = () => { img.onerror = null; img.src = fallbackFavicon(tab.url); };
+    img.onerror = () => { img.onerror = null; img.src = localFallbackFavicon(tab.url); };
 
     const title = document.createElement('span');
     title.className = 'title';
     title.textContent = tab.title || tab.url;
 
-    const pinBtn = document.createElement('button');
-    pinBtn.className = 'btn';
-    pinBtn.textContent = '⚓';
-    pinBtn.title = t('pinAsAnchorTitle');
-    pinBtn.onclick = (e) => { e.stopPropagation(); pinTab(tab); };
+    const btns = document.createElement('span');
+    btns.className = 'btns';
+    btns.appendChild(rowButton('i-anchor', t('pinAsAnchorTitle'), (e) => { e.stopPropagation(); pinTab(tab); }));
+    btns.appendChild(rowButton('i-x', t('closeTitle'), (e) => { e.stopPropagation(); chrome.tabs.remove(tab.id); }));
 
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'btn';
-    closeBtn.textContent = '✕';
-    closeBtn.title = t('closeTitle');
-    closeBtn.onclick = (e) => { e.stopPropagation(); chrome.tabs.remove(tab.id); };
-
-    li.append(img, title, pinBtn, closeBtn);
-    li.onclick = () => chrome.tabs.update(tab.id, { active: true });
+    main.append(img, title);
+    li.appendChild(btns);
+    li.oncontextmenu = (e) => {
+      e.preventDefault();
+      showMenu(li, [
+        { icon: 'i-anchor', label: t('pinAsAnchorTitle'), action: () => pinTab(tab) },
+        { icon: 'i-x', label: t('closeTitle'), danger: true, action: () => chrome.tabs.remove(tab.id) }
+      ]);
+    };
     today.appendChild(li);
   }
+  if (!todayCount) today.appendChild(emptyHint('i-search', t('emptyTodayHint')));
 
   await renderArchive();
+  await updateSyncStatus();
 
   $('#autoreset').value = String(meta.settings.autoResetHours);
   $('#suspend').value = String(meta.settings.suspendMinutes);
   $('#archive-hours').value = String(meta.settings.archiveHours);
-  $('#delete-space').style.display = meta.spaces.length <= 1 ? 'none' : '';
+  $('#dedup-toggle').setAttribute('aria-checked', String(!!meta.settings.dedup));
 }
 
 // ---------- actions ----------
@@ -680,6 +1057,7 @@ function editSpace(space) {
     title: t('spaceDialogTitle', space.name), withInput: true, initial: space.name,
     withColors: true, color: space.color,
     withIcon: true, icon: space.icon || '',
+    okText: t('saveButton'),
     onOk: async (name, color, icon) => {
       space.name = name;
       space.color = color;
@@ -693,7 +1071,7 @@ function editSpace(space) {
 function removeSpace(space) {
   if (meta.spaces.length <= 1) return;
   showDialog({
-    title: t('deleteSpaceDialog', space.name), okText: t('deleteButton'),
+    title: t('deleteSpaceDialog', space.name), okText: t('deleteButton'), danger: true,
     onOk: async () => {
       await deleteAnchors(space.id);
       await saveNote(space.id, '');
@@ -707,6 +1085,15 @@ function removeSpace(space) {
       render();
     }
   });
+}
+
+function showSpaceMenu(el) {
+  const space = activeSpace();
+  showMenu(el, [
+    { icon: 'i-pencil', label: t('editSpaceAction'), action: () => editSpace(space) },
+    { sep: true },
+    { icon: 'i-trash', label: t('deleteSpaceAction'), danger: true, disabled: meta.spaces.length <= 1, action: () => removeSpace(space) }
+  ]);
 }
 
 // ---------- space note ----------
@@ -867,47 +1254,48 @@ async function runSync() {
   } catch (e) {
     toast(t('syncErrorToast', e.message));
   }
+  await updateSettingsUI();
+  await updateSyncStatus();
 }
 
-async function showSyncMenu(el) {
+// ---------- settings sheet ----------
+
+async function updateSettingsUI() {
   const cfg = await getSyncConfig();
-  const status = cfg.token
+  const line = $('#sync-status-line');
+  line.classList.toggle('on', !!cfg.token);
+  $('#sync-status-text').textContent = cfg.token
     ? (cfg.lastSyncAt
       ? t('syncEnabledLastStatus', new Date(cfg.lastSyncAt).toLocaleTimeString())
       : t('syncEnabledStatus'))
     : t('syncDisabledStatus');
-  showMenu(el, [
-    { label: 'ℹ ' + status, disabled: true, action: () => {} },
-    {
-      label: '🔑 ' + (cfg.token ? t('replaceGitHubTokenAction') : t('connectGitHubAction')),
-      action: () => showDialog({
-        title: t('githubTokenDialog'), withInput: true, inputType: 'password', okText: t('saveButton'),
-        onOk: async (token) => {
-          await setSyncConfig({ ...cfg, token });
-          runSync();
-        }
-      })
-    },
-    { label: t('syncNowAction'), disabled: !cfg.token, action: runSync },
-    {
-      label: (meta.settings.dedup ? '☑ ' : '☐ ') + t('dedupAction'),
-      action: async () => {
-        meta.settings.dedup = !meta.settings.dedup;
-        await saveMeta(meta);
-        toast(t(meta.settings.dedup ? 'dedupEnabledToast' : 'dedupDisabledToast'));
-      }
-    },
-    { label: t('importAction'), action: () => $('#import-file').click() },
-    { label: t('exportAction'), action: exportToFile },
-    {
-      label: t('disableSyncAction'),
-      disabled: !cfg.token,
-      action: async () => {
-        await setSyncConfig({ token: '', gistId: cfg.gistId, lastSyncAt: 0 });
-        toast(t('syncDisabledToast'));
-      }
-    }
-  ]);
+  $('#sync-token .label').textContent = cfg.token ? t('replaceGitHubTokenAction') : t('connectGitHubAction');
+  $('#sync-now').disabled = !cfg.token;
+  $('#sync-disable').disabled = !cfg.token;
+  $('#dedup-toggle').setAttribute('aria-checked', String(!!meta.settings.dedup));
+}
+
+async function openSettings() {
+  if (settingsOpening || findOverlay('settings')) return;
+  settingsOpening = true;
+  try {
+    await updateSettingsUI();
+    // updateSettingsUI() is asynchronous, so recheck before pushing the
+    // descriptor even though the opening guard already serializes callers.
+    if (findOverlay('settings')) return;
+    const ov = openOverlay({
+      name: 'settings',
+      el: $('#settings'),
+      trap: true,
+      onClose: () => { $('#settings-overlay').classList.remove('show'); }
+    });
+    $('#settings-close').onclick = () => closeOverlay(ov);
+    $('#settings-backdrop').onclick = () => closeOverlay(ov);
+    $('#settings-overlay').classList.add('show');
+    $('#settings-close').focus();
+  } finally {
+    settingsOpening = false;
+  }
 }
 
 // ---------- initialization ----------
@@ -919,12 +1307,33 @@ async function init() {
   anchors = await loadAnchors(activeSpace().id);
   await loadNoteUI();
 
+  if (chrome.runtime.getManifest) {
+    $('#about-version').textContent = 'v' + chrome.runtime.getManifest().version;
+  }
+
   $('#add-anchor').onclick = () => addCurrentTab();
   $('#add-folder').onclick = addFolder;
   $('#add-space').onclick = addSpace;
-  $('#rename-space').onclick = (e) => { e.preventDefault(); editSpace(activeSpace()); };
-  $('#delete-space').onclick = (e) => { e.preventDefault(); removeSpace(activeSpace()); };
-  $('#sync-menu').onclick = (e) => { e.preventDefault(); e.stopPropagation(); showSyncMenu(e.target); };
+  $('#space-menu').onclick = (e) => { e.stopPropagation(); showSpaceMenu(e.currentTarget); };
+
+  // Roving focus in the space tablist.
+  $('#spaces').addEventListener('keydown', (e) => {
+    const tiles = [...document.querySelectorAll('#spaces .tile')];
+    const idx = tiles.indexOf(document.activeElement);
+    if (idx < 0 || !tiles.length) return;
+    let to = null;
+    if (e.key === 'ArrowRight') to = tiles[(idx + 1) % tiles.length];
+    else if (e.key === 'ArrowLeft') to = tiles[(idx - 1 + tiles.length) % tiles.length];
+    else if (e.key === 'Home') to = tiles[0];
+    else if (e.key === 'End') to = tiles[tiles.length - 1];
+    if (to) {
+      e.preventDefault();
+      tiles.forEach(tl => { tl.tabIndex = -1; });
+      to.tabIndex = 0;
+      to.focus();
+    }
+  });
+
   $('#autoreset').onchange = async (e) => {
     meta.settings.autoResetHours = Number(e.target.value);
     await saveMeta(meta);
@@ -938,25 +1347,55 @@ async function init() {
     await saveMeta(meta);
   };
 
-  $('#note-head').onclick = () => { noteOpen = !noteOpen; render(); };
+  pressable($('#note-head'), () => { noteOpen = !noteOpen; render(); });
   $('#note').oninput = onNoteInput;
-  $('#archive-head').onclick = (e) => {
-    if (e.target.id === 'archive-clear') return;
+
+  pressable($('#archive-head'), () => {
     archiveOpen = !archiveOpen;
     renderArchive();
-  };
+  });
   $('#archive-search').oninput = () => renderArchive();
   $('#archive-search').onclick = (e) => e.stopPropagation();
   $('#archive-clear').onclick = (e) => {
     e.stopPropagation();
     showDialog({
-      title: t('clearArchiveDialog'), okText: t('clearButton'),
+      title: t('clearArchiveDialog'), okText: t('clearButton'), danger: true,
       onOk: async () => {
         await chrome.storage.local.set({ archive: [] });
         renderArchive();
       }
     });
   };
+
+  // Settings sheet.
+  $('#open-settings').onclick = openSettings;
+  $('#sync-status').onclick = openSettings;
+  $('#dedup-toggle').onclick = async () => {
+    meta.settings.dedup = !meta.settings.dedup;
+    await saveMeta(meta);
+    await updateSettingsUI();
+    toast(t(meta.settings.dedup ? 'dedupEnabledToast' : 'dedupDisabledToast'));
+  };
+  $('#sync-token').onclick = async () => {
+    const cfg = await getSyncConfig();
+    showDialog({
+      title: t('githubTokenDialog'), withInput: true, inputType: 'password', okText: t('saveButton'),
+      onOk: async (token) => {
+        await setSyncConfig({ ...cfg, token });
+        runSync();
+      }
+    });
+  };
+  $('#sync-now').onclick = () => runSync();
+  $('#sync-disable').onclick = async () => {
+    const cfg = await getSyncConfig();
+    await setSyncConfig({ token: '', gistId: cfg.gistId, lastSyncAt: 0 });
+    toast(t('syncDisabledToast'));
+    await updateSettingsUI();
+    await updateSyncStatus();
+  };
+  $('#import-btn').onclick = () => $('#import-file').click();
+  $('#export-btn').onclick = exportToFile;
   $('#import-file').onchange = (e) => {
     if (e.target.files && e.target.files[0]) handleImportFile(e.target.files[0]);
     e.target.value = '';
@@ -971,7 +1410,15 @@ async function init() {
     if (id !== chrome.windows.WINDOW_ID_NONE) { currentWindowId = null; scheduleRender(); }
   });
   chrome.storage.onChanged.addListener(async (changes, area) => {
-    if (area === 'local' && changes.archive) { renderArchive(); return; }
+    if (area === 'local') {
+      if (changes.archive) renderArchive();
+      if (changes.syncConfig) {
+        // Background sync updates lastSyncAt; keep the visible status current.
+        updateSyncStatus();
+        if (findOverlay('settings')) updateSettingsUI();
+      }
+      return;
+    }
     if (area !== 'sync' || importing) return;
     meta = await loadMeta();
     anchors = await loadAnchors(activeSpace().id);
@@ -987,6 +1434,7 @@ async function init() {
       if (r.status === 'pulled' || r.status === 'linked') {
         toast(SYNC_STATUS_TEXT[r.status]);
       }
+      updateSyncStatus();
     }).catch(() => {});
   }
 }

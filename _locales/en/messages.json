@@ -20,6 +20,9 @@
   "pinCurrentTabTitle": {
     "message": "Pin the current tab"
   },
+  "spaceOptionsTitle": {
+    "message": "Space options"
+  },
   "noteSection": {
     "message": "Note"
   },
@@ -43,6 +46,21 @@
   },
   "sleepLabel": {
     "message": "Sleep"
+  },
+  "autoResetLabel": {
+    "message": "Auto-reset"
+  },
+  "archiveAfterLabel": {
+    "message": "Auto-archive"
+  },
+  "autoResetHint": {
+    "message": "Return an inactive anchor to its home page"
+  },
+  "sleepHint": {
+    "message": "Discard inactive anchor tabs to save memory"
+  },
+  "archiveHint": {
+    "message": "Close old unbound tabs into the archive"
   },
   "offShort": {
     "message": "Off"
@@ -80,6 +98,18 @@
   "settingsSyncTitle": {
     "message": "Settings and sync"
   },
+  "settingsTitle": {
+    "message": "Settings"
+  },
+  "settingsGroupTabs": {
+    "message": "Tabs"
+  },
+  "settingsGroupSync": {
+    "message": "Sync"
+  },
+  "settingsGroupData": {
+    "message": "Data"
+  },
   "emojiPickerTitle": {
     "message": "Space emoji (press Win+. to open the full picker)"
   },
@@ -114,46 +144,49 @@
     "message": "Actions"
   },
   "goHomeAction": {
-    "message": "⌂ Go home"
+    "message": "Go home"
   },
   "popOutAction": {
-    "message": "↗ Move to a separate window"
+    "message": "Move to a separate window"
   },
   "makeCurrentHomeAction": {
-    "message": "⚓ Make the current page the home page"
+    "message": "Make the current page the home page"
   },
   "homeUpdatedToast": {
     "message": "Home page updated"
   },
   "clearSiteDataAction": {
-    "message": "🧹 Clear cookies and site data"
+    "message": "Clear cookies and site data"
   },
   "renameAction": {
-    "message": "✎ Rename"
+    "message": "Rename"
   },
   "anchorNameDialog": {
     "message": "Anchor name"
   },
   "unpinAction": {
-    "message": "✕ Unpin"
+    "message": "Unpin"
   },
   "pinCurrentHereAction": {
-    "message": "⚓ Pin the current tab here"
+    "message": "Pin the current tab here"
   },
   "folderNameDialog": {
     "message": "Folder name"
   },
   "deleteFolderAction": {
-    "message": "✕ Delete folder (move anchors up)"
+    "message": "Delete folder (move anchors up)"
   },
   "removeFromArchiveTitle": {
     "message": "Remove from archive"
   },
+  "restoreFromArchiveTitle": {
+    "message": "Open and remove from the archive"
+  },
   "editSpaceAction": {
-    "message": "✎ Edit name, icon, and color"
+    "message": "Edit name, icon, and color"
   },
   "deleteSpaceAction": {
-    "message": "✕ Delete space"
+    "message": "Delete space"
   },
   "pinAsAnchorTitle": {
     "message": "Pin as an anchor"
@@ -161,11 +194,26 @@
   "closeTitle": {
     "message": "Close"
   },
+  "awayTitle": {
+    "message": "Away from its home page"
+  },
+  "sleepingTitle": {
+    "message": "Sleeping"
+  },
+  "emptyAnchorsHint": {
+    "message": "Pin the current tab to keep it here"
+  },
+  "emptyTodayHint": {
+    "message": "No other open tabs"
+  },
+  "noMatchesHint": {
+    "message": "No matches"
+  },
   "invalidPageToast": {
     "message": "Browser-internal pages cannot be pinned"
   },
   "addCurrentTabToast": {
-    "message": "Open a website in a regular tab, or use ⚓ next to a tab in Today"
+    "message": "Open a website in a regular tab, or use the anchor button next to a tab in Today"
   },
   "newFolderDialog": {
     "message": "New folder"
@@ -260,6 +308,15 @@
   "syncDisabledStatus": {
     "message": "Sync disabled"
   },
+  "syncOffShort": {
+    "message": "Sync off"
+  },
+  "syncedShort": {
+    "message": "Synced · $TIME$",
+    "placeholders": {
+      "time": { "content": "$1" }
+    }
+  },
   "replaceGitHubTokenAction": {
     "message": "Replace GitHub token"
   },
@@ -270,10 +327,13 @@
     "message": "GitHub token (Gists: read and write only)"
   },
   "syncNowAction": {
-    "message": "↻ Sync now"
+    "message": "Sync now"
   },
   "dedupAction": {
-    "message": "Duplicate protection (focus the anchor instead of a copy)"
+    "message": "Focus the existing anchor instead of keeping a duplicate tab"
+  },
+  "dedupLabel": {
+    "message": "Duplicate protection"
   },
   "dedupEnabledToast": {
     "message": "Duplicate protection enabled"
@@ -282,18 +342,105 @@
     "message": "Duplicate protection disabled"
   },
   "importAction": {
-    "message": "⤓ Import (Arc StorableSidebar or Anchors export)"
+    "message": "Import"
+  },
+  "importHint": {
+    "message": "Arc sidebar or Anchors export"
   },
   "exportAction": {
-    "message": "⤒ Export to file"
+    "message": "Export to file"
+  },
+  "exportHint": {
+    "message": "Spaces, anchors, and notes"
   },
   "disableSyncAction": {
-    "message": "✕ Disable sync and forget the token"
+    "message": "Disable sync and forget the token"
   },
   "syncDisabledToast": {
     "message": "Sync disabled (the Gist was not deleted)"
   },
   "clearArchiveDialog": {
     "message": "Clear the entire archive?"
+  },
+  "spacesLabel": {
+    "message": "Spaces"
+  },
+  "spaceIconGroup": {
+    "message": "Space icon"
+  },
+  "spaceColorGroup": {
+    "message": "Space color"
+  },
+  "spaceIconLabel": {
+    "message": "Icon"
+  },
+  "spaceColorLabel": {
+    "message": "Color"
+  },
+  "noIconOption": {
+    "message": "No icon (use the first letter)"
+  },
+  "iconHome": {
+    "message": "Home"
+  },
+  "iconWork": {
+    "message": "Work"
+  },
+  "iconCode": {
+    "message": "Development"
+  },
+  "iconStudy": {
+    "message": "Study"
+  },
+  "iconTravel": {
+    "message": "Travel"
+  },
+  "iconFinance": {
+    "message": "Finance"
+  },
+  "iconShopping": {
+    "message": "Shopping"
+  },
+  "iconMedia": {
+    "message": "Media"
+  },
+  "iconMusic": {
+    "message": "Music"
+  },
+  "iconGaming": {
+    "message": "Gaming"
+  },
+  "iconIdeas": {
+    "message": "Ideas"
+  },
+  "iconProjects": {
+    "message": "Projects"
+  },
+  "iconHeart": {
+    "message": "Favorites"
+  },
+  "iconLab": {
+    "message": "Lab"
+  },
+  "colorBlue": {
+    "message": "Blue"
+  },
+  "colorCoral": {
+    "message": "Coral"
+  },
+  "colorGreen": {
+    "message": "Green"
+  },
+  "colorYellow": {
+    "message": "Yellow"
+  },
+  "colorPurple": {
+    "message": "Purple"
+  },
+  "colorCyan": {
+    "message": "Cyan"
+  },
+  "colorPink": {
+    "message": "Pink"
   }
 }

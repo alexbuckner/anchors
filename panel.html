@@ -7,28 +7,84 @@
   <link rel="stylesheet" href="panel.css">
 </head>
 <body>
-  <header id="spaces-bar">
-    <div id="spaces"></div>
-    <button id="add-space" title="New space" data-i18n-title="newSpaceTitle">+</button>
+  <svg aria-hidden="true" style="position:absolute; width:0; height:0; overflow:hidden;">
+    <defs>
+      <!-- Interface icons: 16 px grid, 1.5–1.6 stroke, round caps and joins. -->
+      <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3.2v9.6M3.2 8h9.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+      <symbol id="i-chev" viewBox="0 0 16 16"><path d="M6 3.5L10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-dots" viewBox="0 0 16 16"><circle cx="3.2" cy="8" r="1.25" fill="currentColor"/><circle cx="8" cy="8" r="1.25" fill="currentColor"/><circle cx="12.8" cy="8" r="1.25" fill="currentColor"/></symbol>
+      <symbol id="i-home" viewBox="0 0 16 16"><path d="M2.8 7.6L8 3l5.2 4.6M4.2 6.8V13h7.6V6.8M6.8 13v-3.4h2.4V13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-anchor" viewBox="0 0 16 16"><circle cx="8" cy="3.4" r="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.9V14M5.6 7.2h4.8M2.8 9.6a5.2 5.2 0 0010.4 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+      <symbol id="i-x" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+      <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.4 10.4L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 16 16"><path d="M2.8 4.2h10.4M5.8 4V2.8h4.4V4M4.2 4.2l.6 9h6.4l.6-9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 16 16"><path d="M13.2 9.7A5.6 5.6 0 116.3 2.8a4.6 4.6 0 006.9 6.9z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+      <symbol id="i-pop" viewBox="0 0 16 16"><path d="M6.5 3.5H3v9.5h9.5V9.5M9.5 2.5h4v4M13 3L7.8 8.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-cookie" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="6.2" cy="6.4" r=".9" fill="currentColor"/><circle cx="9.8" cy="7.4" r=".9" fill="currentColor"/><circle cx="7.4" cy="10.2" r=".9" fill="currentColor"/></symbol>
+      <symbol id="i-pencil" viewBox="0 0 16 16"><path d="M9.8 3.2l3 3L5.4 13.6l-3.4.4.4-3.4zM8.6 4.4l3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 16 16"><path d="M2 4.2a1 1 0 011-1h3.2L7.6 5H13a1 1 0 011 1v6a1 1 0 01-1 1H3a1 1 0 01-1-1z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+      <symbol id="i-gear" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.8 3.6h5M12.1 3.6h1.1"/><circle cx="10.2" cy="3.6" r="1.7"/><path d="M2.8 8h1.1M7.7 8h5.5"/><circle cx="5.8" cy="8" r="1.7"/><path d="M2.8 12.4h4.3M10.9 12.4h2.3"/><circle cx="9" cy="12.4" r="1.7"/></g></symbol>
+      <symbol id="i-sync" viewBox="0 0 16 16"><path d="M13 8a5 5 0 01-8.7 3.4M3 8a5 5 0 018.7-3.4M11.4 1.8l.3 2.8-2.8.3M4.6 14.2l-.3-2.8 2.8-.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-down" viewBox="0 0 16 16"><path d="M8 2.5V10M5 7.2l3 3 3-3M2.8 13.2h10.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-up" viewBox="0 0 16 16"><path d="M8 10V2.5M5 5.3l3-3 3 3M2.8 13.2h10.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-key" viewBox="0 0 16 16"><circle cx="5" cy="8" r="2.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7.6 8h6M11.2 8v2.4M13.6 8v1.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+      <symbol id="i-check" viewBox="0 0 16 16"><path d="M3 8.4l3.2 3.2L13 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-box" viewBox="0 0 16 16"><path d="M2.2 3h11.6v3H2.2zM3.2 6v6.6h9.6V6M6.4 8.8h3.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-slash" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4.2 11.8L11.8 4.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+      <!-- Brand mark: a browser tab moored to a cradle. -->
+      <symbol id="i-brand" viewBox="0 0 128 128"><rect x="36" y="24" width="56" height="40" rx="11" fill="none" stroke="currentColor" stroke-width="10" stroke-linejoin="round"/><path d="M64 64v38" stroke="currentColor" stroke-width="10" stroke-linecap="round"/><path d="M38 82a26 26 0 0052 0" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round"/></symbol>
+      <!-- Space icons: same family, used by the space-icon picker. -->
+      <symbol id="s-home" viewBox="0 0 16 16"><path d="M2.8 7.6L8 3l5.2 4.6M4.2 6.8V13h7.6V6.8M6.8 13v-3.4h2.4V13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="s-work" viewBox="0 0 16 16"><rect x="2.5" y="5" width="11" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 5V3.9A1.1 1.1 0 017.1 2.8h1.8A1.1 1.1 0 0110 3.9V5M2.5 8.4h11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+      <symbol id="s-code" viewBox="0 0 16 16"><path d="M5.8 4.6L2.4 8l3.4 3.4M10.2 4.6L13.6 8l-3.4 3.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="s-study" viewBox="0 0 16 16"><path d="M8 3.6C6.9 2.8 5.1 2.5 3 2.7v10.1c2.1-.2 3.9.1 5 .9 1.1-.8 2.9-1.1 5-.9V2.7c-2.1-.2-3.9.1-5 .9zM8 3.6v10.1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="s-travel" viewBox="0 0 16 16"><path d="M13.6 2.4L2.4 7.1l4.3 1.9 1.7 4.6zM13.6 2.4L6.7 9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="s-finance" viewBox="0 0 16 16"><rect x="2" y="4.4" width="12" height="7.2" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="8" cy="8" r="1.7" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+      <symbol id="s-shopping" viewBox="0 0 16 16"><path d="M2.4 3h1.7l1.5 7h6.6l1.4-5.2H4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6.4" cy="12.8" r="1" fill="currentColor"/><circle cx="11" cy="12.8" r="1" fill="currentColor"/></symbol>
+      <symbol id="s-media" viewBox="0 0 16 16"><rect x="2.4" y="3.4" width="11.2" height="9.2" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6.9 6.1l3.2 1.9-3.2 1.9z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></symbol>
+      <symbol id="s-music" viewBox="0 0 16 16"><path d="M3 9.6V8a5 5 0 0110 0v1.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><rect x="2.6" y="9.4" width="2.4" height="3.4" rx="1" fill="currentColor"/><rect x="11" y="9.4" width="2.4" height="3.4" rx="1" fill="currentColor"/></symbol>
+      <symbol id="s-gaming" viewBox="0 0 16 16"><path d="M5.4 4.6h5.2c2.1 0 3.4 1.7 3.4 3.6 0 1.6-1.1 2.9-2.5 2.9-.9 0-1.5-.6-2.2-1.1H6.7c-.7.5-1.3 1.1-2.2 1.1-1.4 0-2.5-1.3-2.5-2.9 0-1.9 1.3-3.6 3.4-3.6z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M5.2 7.4h2.2M6.3 6.3v2.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="10.9" cy="7.4" r=".9" fill="currentColor"/></symbol>
+      <symbol id="s-ideas" viewBox="0 0 16 16"><path d="M8 2.4a4 4 0 012.3 7.3c-.5.4-.8.8-.8 1.4v.2H6.5v-.2c0-.6-.3-1-.8-1.4A4 4 0 018 2.4z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6.6 13.4h2.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+      <symbol id="s-projects" viewBox="0 0 16 16"><path d="M8 2.6l5.8 2.9L8 8.4 2.2 5.5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M2.6 8.8L8 11.5l5.4-2.7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="s-heart" viewBox="0 0 16 16"><path d="M8 13.2S2.4 9.9 2.4 6.1a3 3 0 015.6-1.5A3 3 0 0113.6 6.1c0 3.8-5.6 7.1-5.6 7.1z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+      <symbol id="s-lab" viewBox="0 0 16 16"><path d="M6.4 2.6h3.2M7 2.6v3.8l-3.7 5.9a1.2 1.2 0 001 1.9h7.4a1.2 1.2 0 001-1.9L9 6.4V2.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    </defs>
+  </svg>
+
+  <header>
+    <div id="spaces-bar">
+      <div id="spaces" role="tablist" aria-label="Spaces" data-i18n-aria="spacesLabel"></div>
+      <button id="add-space" title="New space" data-i18n-title="newSpaceTitle" aria-label="New space" data-i18n-aria="newSpaceTitle">
+        <svg class="icon" width="13" height="13"><use href="#i-plus"/></svg>
+      </button>
+    </div>
+    <div id="space-head">
+      <span id="space-glyph" aria-hidden="true"></span>
+      <span id="space-name"></span>
+      <span class="spacer"></span>
+      <button id="add-folder" class="ibtn" title="New folder" data-i18n-title="newFolderTitle" aria-label="New folder" data-i18n-aria="newFolderTitle">
+        <svg class="icon" width="15" height="15"><use href="#i-folder"/></svg>
+      </button>
+      <button id="add-anchor" class="ibtn" title="Pin the current tab" data-i18n-title="pinCurrentTabTitle" aria-label="Pin the current tab" data-i18n-aria="pinCurrentTabTitle">
+        <svg class="icon" width="15" height="15"><use href="#i-anchor"/></svg>
+      </button>
+      <button id="space-menu" class="ibtn" title="Space options" data-i18n-title="spaceOptionsTitle" aria-label="Space options" data-i18n-aria="spaceOptionsTitle" aria-haspopup="menu">
+        <svg class="icon" width="15" height="15"><use href="#i-dots"/></svg>
+      </button>
+    </div>
   </header>
 
   <main>
     <section id="anchors-section">
-      <div class="section-head">
-        <span id="space-name"></span>
-        <span class="head-buttons">
-          <button id="add-folder" title="New folder" data-i18n-title="newFolderTitle">▸</button>
-          <button id="add-anchor" title="Pin the current tab" data-i18n-title="pinCurrentTabTitle">+</button>
-        </span>
-      </div>
       <ul id="anchors"></ul>
     </section>
 
     <section id="note-section">
-      <div class="section-head" id="note-head">
-        <span><span id="note-twisty">▸</span> <span data-i18n="noteSection">Note</span></span>
+      <div class="section-head clickable" id="note-head" role="button" tabindex="0" aria-expanded="false">
+        <svg id="note-twisty" class="icon twisty" width="10" height="10"><use href="#i-chev"/></svg>
+        <span data-i18n="noteSection">Note</span>
       </div>
-      <textarea id="note" rows="4" placeholder="Space note — synced with your anchors" data-i18n-placeholder="notePlaceholder" style="display:none"></textarea>
+      <textarea id="note" rows="4" placeholder="Space note — synced with your anchors" data-i18n-placeholder="notePlaceholder" aria-label="Space note" data-i18n-aria="noteSection" spellcheck="false" style="display:none"></textarea>
     </section>
 
     <section id="today-section">
@@ -37,64 +93,147 @@
     </section>
 
     <section id="archive-section">
-      <div class="section-head" id="archive-head">
-        <span><span id="archive-twisty">▸</span> <span data-i18n="archiveSection">Archive</span> <span id="archive-count"></span></span>
-        <button id="archive-clear" title="Clear archive" data-i18n-title="clearArchiveTitle" style="display:none">🗑</button>
+      <div class="section-row">
+        <div class="section-head clickable" id="archive-head" role="button" tabindex="0" aria-expanded="false">
+          <svg id="archive-twisty" class="icon twisty" width="10" height="10"><use href="#i-chev"/></svg>
+          <span data-i18n="archiveSection">Archive</span>
+          <span id="archive-count" class="count"></span>
+        </div>
+        <button id="archive-clear" class="ibtn" title="Clear archive" data-i18n-title="clearArchiveTitle" aria-label="Clear archive" data-i18n-aria="clearArchiveTitle" style="display:none">
+          <svg class="icon" width="13" height="13"><use href="#i-trash"/></svg>
+        </button>
       </div>
-      <input id="archive-search" type="text" placeholder="Search the archive" data-i18n-placeholder="archiveSearchPlaceholder" style="display:none" spellcheck="false">
+      <div id="archive-search-wrap" style="display:none">
+        <svg class="icon" width="13" height="13"><use href="#i-search"/></svg>
+        <input id="archive-search" type="text" placeholder="Search the archive" data-i18n-placeholder="archiveSearchPlaceholder" aria-label="Search the archive" data-i18n-aria="archiveSearchPlaceholder" spellcheck="false">
+      </div>
       <ul id="archive"></ul>
     </section>
   </main>
 
   <footer>
-    <label><span data-i18n="resetLabel">Reset</span>
-      <select id="autoreset">
-        <option value="0" data-i18n="offShort">Off</option>
-        <option value="1" data-i18n="oneHourShort">1h</option>
-        <option value="3" data-i18n="threeHoursShort">3h</option>
-        <option value="6" data-i18n="sixHoursShort">6h</option>
-        <option value="12" data-i18n="twelveHoursShort">12h</option>
-        <option value="24" data-i18n="twentyFourHoursShort">24h</option>
-      </select>
-    </label>
-    <label><span data-i18n="sleepLabel">Sleep</span>
-      <select id="suspend">
-        <option value="0" data-i18n="offShort">Off</option>
-        <option value="15" data-i18n="fifteenMinutesShort">15m</option>
-        <option value="30" data-i18n="thirtyMinutesShort">30m</option>
-        <option value="60" data-i18n="oneHourShort">1h</option>
-        <option value="180" data-i18n="threeHoursShort">3h</option>
-      </select>
-    </label>
-    <label><span data-i18n="archiveSection">Archive</span>
-      <select id="archive-hours">
-        <option value="0" data-i18n="offShort">Off</option>
-        <option value="6" data-i18n="sixHoursShort">6h</option>
-        <option value="12" data-i18n="twelveHoursShort">12h</option>
-        <option value="24" data-i18n="twentyFourHoursShort">24h</option>
-        <option value="72" data-i18n="threeDaysShort">3d</option>
-      </select>
-    </label>
-    <span id="space-actions">
-      <a href="#" id="rename-space" data-i18n="renameSpaceShort">rename</a>
-      <a href="#" id="delete-space" data-i18n="deleteSpaceShort">delete</a>
-      <a href="#" id="sync-menu" title="Settings and sync" data-i18n-title="settingsSyncTitle">⚙</a>
-    </span>
+    <button id="sync-status" title="Settings and sync" data-i18n-title="settingsSyncTitle">
+      <span class="dot" aria-hidden="true"></span>
+      <span class="label" id="sync-status-label"></span>
+    </button>
+    <span class="spacer"></span>
+    <button id="open-settings" class="ibtn" title="Settings and sync" data-i18n-title="settingsSyncTitle" aria-label="Settings and sync" data-i18n-aria="settingsSyncTitle" aria-haspopup="dialog">
+      <svg class="icon" width="15" height="15"><use href="#i-gear"/></svg>
+    </button>
   </footer>
+
+  <div id="settings-overlay">
+    <div id="settings-backdrop"></div>
+    <div id="settings" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div id="settings-head">
+        <span class="title" id="settings-title" data-i18n="settingsTitle">Settings</span>
+        <button id="settings-close" class="ibtn" title="Close" data-i18n-title="closeTitle" aria-label="Close" data-i18n-aria="closeTitle">
+          <svg class="icon" width="14" height="14"><use href="#i-x"/></svg>
+        </button>
+      </div>
+      <div id="settings-body">
+        <div class="group-label" data-i18n="settingsGroupTabs">Tabs</div>
+        <div class="group">
+          <div class="setting-row" title="Return an inactive anchor to its home page" data-i18n-title="autoResetHint">
+            <svg class="icon" width="15" height="15"><use href="#i-home"/></svg>
+            <span class="label" data-i18n="autoResetLabel">Auto-reset</span>
+            <select id="autoreset" aria-label="Auto-reset" data-i18n-aria="autoResetLabel">
+              <option value="0" data-i18n="offShort">Off</option>
+              <option value="1" data-i18n="oneHourShort">1h</option>
+              <option value="3" data-i18n="threeHoursShort">3h</option>
+              <option value="6" data-i18n="sixHoursShort">6h</option>
+              <option value="12" data-i18n="twelveHoursShort">12h</option>
+              <option value="24" data-i18n="twentyFourHoursShort">24h</option>
+            </select>
+          </div>
+          <div class="setting-row" title="Discard inactive anchor tabs to save memory" data-i18n-title="sleepHint">
+            <svg class="icon" width="15" height="15"><use href="#i-moon"/></svg>
+            <span class="label" data-i18n="sleepLabel">Sleep</span>
+            <select id="suspend" aria-label="Sleep" data-i18n-aria="sleepLabel">
+              <option value="0" data-i18n="offShort">Off</option>
+              <option value="15" data-i18n="fifteenMinutesShort">15m</option>
+              <option value="30" data-i18n="thirtyMinutesShort">30m</option>
+              <option value="60" data-i18n="oneHourShort">1h</option>
+              <option value="180" data-i18n="threeHoursShort">3h</option>
+            </select>
+          </div>
+          <div class="setting-row" title="Close old unbound tabs into the archive" data-i18n-title="archiveHint">
+            <svg class="icon" width="15" height="15"><use href="#i-box"/></svg>
+            <span class="label" data-i18n="archiveAfterLabel">Auto-archive</span>
+            <select id="archive-hours" aria-label="Auto-archive" data-i18n-aria="archiveAfterLabel">
+              <option value="0" data-i18n="offShort">Off</option>
+              <option value="6" data-i18n="sixHoursShort">6h</option>
+              <option value="12" data-i18n="twelveHoursShort">12h</option>
+              <option value="24" data-i18n="twentyFourHoursShort">24h</option>
+              <option value="72" data-i18n="threeDaysShort">3d</option>
+            </select>
+          </div>
+          <div class="setting-row" title="Focus the existing anchor instead of keeping a duplicate tab" data-i18n-title="dedupAction">
+            <svg class="icon" width="15" height="15"><use href="#i-check"/></svg>
+            <span class="label" data-i18n="dedupLabel">Duplicate protection</span>
+            <button id="dedup-toggle" class="switch" role="switch" aria-checked="false" aria-label="Duplicate protection" data-i18n-aria="dedupLabel"></button>
+          </div>
+        </div>
+
+        <div class="group-label" data-i18n="settingsGroupSync">Sync</div>
+        <div class="group">
+          <div id="sync-status-line">
+            <span class="dot" aria-hidden="true"></span>
+            <span class="label" id="sync-status-text"></span>
+          </div>
+          <button id="sync-token" class="setting-btn">
+            <svg class="icon" width="15" height="15"><use href="#i-key"/></svg>
+            <span class="text"><span class="label" data-i18n="connectGitHubAction">Connect GitHub (token)</span></span>
+          </button>
+          <button id="sync-now" class="setting-btn">
+            <svg class="icon" width="15" height="15"><use href="#i-sync"/></svg>
+            <span class="text"><span class="label" data-i18n="syncNowAction">Sync now</span></span>
+          </button>
+          <button id="sync-disable" class="setting-btn danger">
+            <svg class="icon" width="15" height="15"><use href="#i-x"/></svg>
+            <span class="text"><span class="label" data-i18n="disableSyncAction">Disable sync and forget the token</span></span>
+          </button>
+        </div>
+
+        <div class="group-label" data-i18n="settingsGroupData">Data</div>
+        <div class="group">
+          <button id="import-btn" class="setting-btn">
+            <svg class="icon" width="15" height="15"><use href="#i-down"/></svg>
+            <span class="text">
+              <span class="label" data-i18n="importAction">Import</span>
+              <span class="hint" data-i18n="importHint">Arc sidebar or Anchors export</span>
+            </span>
+          </button>
+          <button id="export-btn" class="setting-btn">
+            <svg class="icon" width="15" height="15"><use href="#i-up"/></svg>
+            <span class="text">
+              <span class="label" data-i18n="exportAction">Export to file</span>
+              <span class="hint" data-i18n="exportHint">Spaces, anchors, and notes</span>
+            </span>
+          </button>
+        </div>
+
+        <div id="about">
+          <svg class="icon" width="15" height="15"><use href="#i-brand"/></svg>
+          <span>Anchors</span>
+          <span class="ver" id="about-version"></span>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <input type="file" id="import-file" accept="application/json,.json" style="display:none">
 
-  <div id="toast"></div>
+  <div id="toast" role="status"></div>
 
   <div id="dialog-overlay">
-    <div id="dialog">
+    <div id="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
       <div id="dialog-title"></div>
       <input id="dialog-input" type="text" spellcheck="false">
-      <div id="dialog-icon-row">
-        <input id="dialog-icon" type="text" maxlength="4" placeholder="🙂" spellcheck="false" title="Space emoji (press Win+. to open the full picker)" data-i18n-title="emojiPickerTitle">
-        <div id="dialog-icons"></div>
-      </div>
-      <div id="dialog-colors"></div>
+      <div id="dialog-icon-label" class="dialog-group-label" data-i18n="spaceIconLabel">Icon</div>
+      <div id="dialog-icons" role="group" aria-labelledby="dialog-icon-label" aria-label="Space icon" data-i18n-aria="spaceIconGroup"></div>
+      <div id="dialog-color-label" class="dialog-group-label" data-i18n="spaceColorLabel">Color</div>
+      <div id="dialog-colors" role="group" aria-labelledby="dialog-color-label" aria-label="Space color" data-i18n-aria="spaceColorGroup"></div>
       <div id="dialog-buttons">
         <button id="dialog-cancel" data-i18n="cancelButton">Cancel</button>
         <button id="dialog-ok" data-i18n="okButton">OK</button>

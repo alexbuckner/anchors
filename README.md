@@ -5,13 +5,13 @@ Brave, and Vivaldi. It is a lightweight Manifest V3 extension with a compact
 side panel: every anchor tab has a saved home URL, while regular tabs stay in a
 separate Today section.
 
-Current version: **0.6.3**.
+Current version: **0.7.0**.
 
 ![Anchors main panel](docs/screenshots/panel-overview.png)
 
 | Tab archive | Settings and sync |
 | --- | --- |
-| ![Anchors archive](docs/screenshots/panel-archive.png) | ![Anchors settings menu](docs/screenshots/panel-settings.png) |
+| ![Anchors archive](docs/screenshots/panel-archive.png) | ![Anchors settings sheet](docs/screenshots/panel-settings.png) |
 
 _The screenshots use fictional demo data._
 
@@ -19,7 +19,8 @@ _The screenshots use fictional demo data._
 
 - **Anchor tabs.** Click an anchor to open or focus its tab. Click the active
   anchor again to return it to the saved home URL.
-- **Spaces.** Every space has a name, color, emoji, anchor collection, and note.
+- **Spaces.** Every space has a name, color, custom icon, anchor collection,
+  and note. Legacy emoji icons remain compatible.
 - **Folders and ordering.** Group anchors into one-level folders and reorder
   items with drag and drop.
 - **Today.** Open, close, or pin regular web tabs from the current window.
@@ -144,6 +145,8 @@ translation exists under `_locales`, and falls back to English otherwise.
 - `shared.js` — persistence and anchor bindings;
 - `sync.js` — GitHub Gist synchronization;
 - `_locales/` — Chrome i18n messages;
+- `icons/` — the Anchors brand and extension icon assets;
+- `DESIGN.md` — visual tokens, component states, and responsive rules;
 - `manifest.json` — Manifest V3 configuration.
 
 There is no build step or runtime dependency. After editing the source, reload
