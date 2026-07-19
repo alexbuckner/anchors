@@ -412,14 +412,19 @@ function showMenu(anchorEl, items) {
   menu.id = 'menu';
   menu.setAttribute('role', 'menu');
 
-  const onDocClick = () => closeOverlay(ov, { restoreFocus: false });
+  // Capture pointer presses before row/header handlers can stop propagation.
+  // This keeps the menu transient even when the clicked surface owns its own
+  // click handler; presses inside the menu are left for its buttons to handle.
+  const onDocPointerDown = (e) => {
+    if (!menu.contains(e.target)) closeOverlay(ov, { restoreFocus: false });
+  };
   const ov = openOverlay({
     name: 'menu',
     el: menu,
     trap: false,
     onClose: () => {
       menu.remove();
-      document.removeEventListener('click', onDocClick);
+      document.removeEventListener('pointerdown', onDocPointerDown, true);
     }
   });
 
@@ -444,13 +449,13 @@ function showMenu(anchorEl, items) {
     menu.appendChild(btn);
   }
   document.body.appendChild(menu);
+  document.addEventListener('pointerdown', onDocPointerDown, true);
   const r = anchorEl.getBoundingClientRect();
   const mh = menu.offsetHeight;
   menu.style.left = Math.max(8, Math.min(r.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8)) + 'px';
   menu.style.top = Math.max(8, r.bottom + mh > window.innerHeight - 8 ? r.top - mh : r.bottom) + 'px';
   const first = menu.querySelector('button:not(:disabled)');
   if (first) { first.tabIndex = 0; first.focus(); }
-  setTimeout(() => document.addEventListener('click', onDocClick), 0);
 }
 
 // ---------- drag and drop ----------

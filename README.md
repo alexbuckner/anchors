@@ -6,7 +6,7 @@ side panel: every anchor has a saved home URL, while regular tabs stay in a
 separate Today section. By default, anchors reuse one live browser tab per
 window instead of filling the native tab strip.
 
-Current version: **0.8.1**.
+Current version: **0.8.2**.
 
 ![Anchors main panel](docs/screenshots/panel-overview.png)
 

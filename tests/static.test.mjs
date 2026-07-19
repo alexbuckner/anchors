@@ -40,7 +40,7 @@ test('manifest, package, and README versions agree', async () => {
     read('package.json').then(JSON.parse),
     read('README.md')
   ]);
-  assert.equal(manifest.version, '0.8.1');
+  assert.equal(manifest.version, '0.8.2');
   assert.equal(pkg.version, manifest.version);
   assert.match(readme, new RegExp(`Current version: \\*\\*${manifest.version.replaceAll('.', '\\.')}\\*\\*\\.`));
   assert.deepEqual(manifest.permissions, [
@@ -124,6 +124,15 @@ test('panel selectors and SVG references resolve', async () => {
   const svgRefs = [...html.matchAll(/<use\s+href="#([^"]+)"/g)].map(match => match[1]);
   assert.deepEqual([...new Set(selectorIds.filter(id => !ids.has(id)))], []);
   assert.deepEqual([...new Set(svgRefs.filter(id => !ids.has(id)))], []);
+});
+
+test('context menu closes on captured pointer presses outside it', async () => {
+  const panelJs = await read('panel.js');
+  const showMenu = panelJs.match(/function showMenu\(anchorEl, items\) \{[\s\S]*?\n\}\n\n\/\/ ---------- drag and drop ----------/)?.[0];
+  assert.ok(showMenu, 'Missing showMenu implementation');
+  assert.match(showMenu, /if \(!menu\.contains\(e\.target\)\) closeOverlay\(ov, \{ restoreFocus: false \}\);/);
+  assert.match(showMenu, /document\.addEventListener\('pointerdown', onDocPointerDown, true\);/);
+  assert.match(showMenu, /document\.removeEventListener\('pointerdown', onDocPointerDown, true\);/);
 });
 
 test('text sources contain no Cyrillic copy', async () => {

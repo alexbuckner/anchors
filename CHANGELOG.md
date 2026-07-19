@@ -2,6 +2,13 @@
 
 All notable changes to Anchors will be documented in this file.
 
+## [0.8.2] — 2026-07-19
+
+### Fixed
+
+- Close context menus on every pointer press outside the menu, including on
+  interactive panel surfaces whose own handlers stop event propagation.
+
 ## [0.8.1] — 2026-07-19
 
 ### Fixed

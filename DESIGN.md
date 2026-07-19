@@ -1,7 +1,7 @@
-# Anchors — visual specification (v0.8.1)
+# Anchors — visual specification (v0.8.2)
 
 This document is the source of truth for the implemented panel design. The
-v0.8.1 source and bundled assets follow these tokens, component rules, states,
+v0.8.2 source and bundled assets follow these tokens, component rules, states,
 and responsive constraints.
 
 ## 1. Design tokens
