@@ -38,7 +38,8 @@ const {
   decryptSyncState,
   setSyncConfig,
   syncNow,
-  migratePlaintextGist
+  migratePlaintextGist,
+  resolveSyncConflict
 } = await import('../sync.js');
 
 const encryptedFile = 'anchors-sync.enc.json';
@@ -92,9 +93,11 @@ function state(updatedAt, url = 'https://example.test/') {
   return {
     updatedAt,
     meta: {
-      spaces: [{ id: 'space', name: 'Work' }],
+      version: 1,
+      spaces: [{ id: 'space', name: 'Work', color: '#7c9cff', icon: '' }],
       favorites: [{ id: 'favorite', url: 'https://favorite.internal.test/', title: 'Private favorite' }],
-      activeSpaceId: 'space'
+      activeSpaceId: 'space',
+      settings: {}
     },
     data: { anchors_space__0: [{ id: 'anchor', url, title: 'Private title' }] }
   };
@@ -134,6 +137,27 @@ test('AES-GCM envelope round-trips without exposing sync contents', async () => 
   );
 });
 
+test('AES-GCM authentication rejects a modified ciphertext', async () => {
+  const key = generateSyncKey();
+  const envelope = await encryptSyncState(state(10), key);
+  const index = Math.floor(envelope.ciphertext.length / 2);
+  const replacement = envelope.ciphertext[index] === 'A' ? 'B' : 'A';
+  envelope.ciphertext = envelope.ciphertext.slice(0, index) + replacement + envelope.ciphertext.slice(index + 1);
+  await assert.rejects(
+    decryptSyncState(envelope, key),
+    error => error.code === 'KEY_MISMATCH'
+  );
+});
+
+test('sync schema rejects non-web anchor URLs before encryption', async () => {
+  const invalid = state(10);
+  invalid.data.anchors_space__0[0].url = 'javascript:alert(1)';
+  await assert.rejects(
+    encryptSyncState(invalid, generateSyncKey()),
+    error => error.code === 'INVALID_LOCAL'
+  );
+});
+
 test('first sync creates an encrypted Gist', async () => {
   const key = generateSyncKey();
   const local = state(20, 'https://work.example.test/secret');
@@ -145,7 +169,11 @@ test('first sync creates an encrypted Gist', async () => {
   assert.ok(gist.files[encryptedFile]);
   assert.equal(gist.files[legacyFile], undefined);
   assert.doesNotMatch(gist.files[encryptedFile].content, /work\.example|secret/);
-  assert.deepEqual(await decryptSyncState(JSON.parse(gist.files[encryptedFile].content), key), local);
+  const decrypted = await decryptSyncState(JSON.parse(gist.files[encryptedFile].content), key);
+  assert.deepEqual(decrypted.meta, local.meta);
+  assert.deepEqual(decrypted.data, local.data);
+  assert.match(decrypted.syncMeta.revision, /^[0-9a-f-]{36}$/);
+  assert.deepEqual(decrypted.syncMeta.lineage, []);
 });
 
 test('a newer encrypted snapshot is pulled and applied', async () => {
@@ -172,6 +200,68 @@ test('a wrong key never overwrites the remote Gist', async () => {
   await assert.rejects(syncNow(), error => error.code === 'KEY_MISMATCH');
   assert.equal(requests.filter(request => request.method === 'PATCH').length, 0);
   assert.match(gists.get('remote').files[encryptedFile].content, new RegExp(envelope.ciphertext.slice(0, 16)));
+});
+
+test('two changed descendants stop with a conflict and can explicitly keep remote', async () => {
+  const key = generateSyncKey();
+  setLocal(state(10, 'https://base.test/'));
+  await setSyncConfig({ token: 'token', gistId: '', lastSyncAt: 0, encryptionKey: key });
+  await syncNow();
+
+  const gist = [...gists.values()][0];
+  const base = await decryptSyncState(JSON.parse(gist.files[encryptedFile].content), key);
+  setLocal(state(20, 'https://local-change.test/'));
+  const remote = state(30, 'https://remote-change.test/');
+  remote.syncMeta = { revision: 'remote-branch', lineage: [base.syncMeta.revision] };
+  gist.files[encryptedFile].content = JSON.stringify(await encryptSyncState(remote, key));
+  requests.length = 0;
+
+  await assert.rejects(syncNow(), error => error.code === 'SYNC_CONFLICT');
+  assert.equal(requests.filter(request => request.method === 'PATCH').length, 0);
+  assert.equal(localState.anchors_space__0[0].url, 'https://local-change.test/');
+
+  assert.deepEqual(await resolveSyncConflict('remote'), { status: 'resolvedRemote' });
+  assert.equal(localState.anchors_space__0[0].url, 'https://remote-change.test/');
+});
+
+test('explicit local conflict resolution stamps the current remote as its parent', async () => {
+  const key = generateSyncKey();
+  setLocal(state(10, 'https://base.test/'));
+  await setSyncConfig({ token: 'token', gistId: '', lastSyncAt: 0, encryptionKey: key });
+  await syncNow();
+  const gist = [...gists.values()][0];
+  const base = await decryptSyncState(JSON.parse(gist.files[encryptedFile].content), key);
+
+  setLocal(state(20, 'https://keep-local.test/'));
+  const remote = state(30, 'https://discard-remote.test/');
+  remote.syncMeta = { revision: 'remote-current', lineage: [base.syncMeta.revision] };
+  gist.files[encryptedFile].content = JSON.stringify(await encryptSyncState(remote, key));
+
+  assert.deepEqual(await resolveSyncConflict('local'), { status: 'resolvedLocal' });
+  const resolved = await decryptSyncState(JSON.parse(gist.files[encryptedFile].content), key);
+  assert.equal(resolved.data.anchors_space__0[0].url, 'https://keep-local.test/');
+  assert.equal(resolved.syncMeta.lineage[0], 'remote-current');
+});
+
+test('a crossing branch is detected after this device already pushed', async () => {
+  const key = generateSyncKey();
+  setLocal(state(10, 'https://base.test/'));
+  await setSyncConfig({ token: 'token', gistId: '', lastSyncAt: 0, encryptionKey: key });
+  await syncNow();
+  const gist = [...gists.values()][0];
+  const base = await decryptSyncState(JSON.parse(gist.files[encryptedFile].content), key);
+
+  setLocal(state(20, 'https://this-device.test/'));
+  assert.deepEqual(await syncNow(), { status: 'pushed' });
+
+  const otherDevice = state(30, 'https://other-device.test/');
+  otherDevice.syncMeta = { revision: 'other-device-branch', lineage: [base.syncMeta.revision] };
+  gist.files[encryptedFile].content = JSON.stringify(await encryptSyncState(otherDevice, key));
+  requests.length = 0;
+
+  await assert.rejects(syncNow(), error => error.code === 'SYNC_CONFLICT');
+  assert.equal(requests.filter(request => request.method === 'PATCH').length, 0);
+  assert.equal(localState.anchors_space__0[0].url, 'https://this-device.test/');
 });
 
 test('plaintext migration is explicit and replaces the legacy Gist safely', async () => {

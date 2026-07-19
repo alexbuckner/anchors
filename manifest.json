@@ -1,11 +1,15 @@
 {
   "manifest_version": 3,
   "name": "__MSG_extensionName__",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "__MSG_extensionDescription__",
   "default_locale": "en",
-  "permissions": ["tabs", "storage", "sessions", "alarms", "favicon", "sidePanel", "browsingData", "cookies"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": ["tabs", "storage", "sessions", "alarms", "favicon", "sidePanel", "browsingData"],
+  "host_permissions": ["https://api.github.com/*"],
+  "incognito": "not_allowed",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'; connect-src https://api.github.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'"
+  },
   "background": { "service_worker": "background.js", "type": "module" },
   "side_panel": { "default_path": "panel.html" },
   "icons": {

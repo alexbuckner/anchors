@@ -6,10 +6,13 @@ import {
 } from './shared.js';
 import { filterPalette } from './palette.js';
 import {
-  syncNow, migratePlaintextGist,
   getSyncConfig, setSyncConfig,
   generateSyncKey, normalizeSyncKey
 } from './sync.js';
+import {
+  assertImportFileSize, boundedText, DATA_LIMITS,
+  normalizeAnchorItems, normalizeColor, normalizeFavorites, normalizeIcon, normalizeNote
+} from './data-schema.js';
 
 let meta = null;
 let anchors = [];   // Items are anchors {id,url,title} or folders {id,type:'folder',name,collapsed,children:[]}.
@@ -29,7 +32,7 @@ let paletteIndex = 0;
 
 const $ = (sel) => document.querySelector(sel);
 const SVG_NS = 'http://www.w3.org/2000/svg';
-const RUNTIME_PROTOCOL_VERSION = 3;
+const RUNTIME_PROTOCOL_VERSION = 4;
 const FAVORITES_LIMIT = 12;
 
 function t(key, substitutions) {
@@ -42,7 +45,11 @@ async function tabState(action, payload = {}) {
     action,
     ...payload
   });
-  if (!response?.ok) throw new Error(response?.error || 'Unknown tab error');
+  if (!response?.ok) {
+    const error = new Error(response?.error || 'Unknown tab error');
+    if (response?.code) error.code = response.code;
+    throw error;
+  }
   return response;
 }
 
@@ -320,7 +327,12 @@ function toast(msg) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
 }
 
-function showDialog({ title, withInput = false, initial = '', inputType = 'text', withColors = false, color = PALETTE[0], withIcon = false, icon: iconValue = '', okText = t('okButton'), danger = false, onOk }) {
+function showDialog({
+  title, withInput = false, initial = '', inputType = 'text',
+  withColors = false, color = PALETTE[0], withIcon = false, icon: iconValue = '',
+  okText = t('okButton'), cancelText = t('cancelButton'), danger = false,
+  onOk, onCancel = null
+}) {
   const existing = findOverlay('dialog');
   if (existing) closeOverlay(existing, { restoreFocus: false });
 
@@ -419,7 +431,12 @@ function showDialog({ title, withInput = false, initial = '', inputType = 'text'
     closeOverlay(ov);
     onOk(input.value.trim(), chosenColor, chosenIcon.trim ? chosenIcon.trim() : chosenIcon);
   };
-  $('#dialog-cancel').onclick = () => closeOverlay(ov);
+  const cancel = $('#dialog-cancel');
+  cancel.textContent = cancelText;
+  cancel.onclick = () => {
+    closeOverlay(ov);
+    onCancel?.();
+  };
   overlayEl.onclick = (e) => { if (e.target === overlayEl) closeOverlay(ov); };
   input.onkeydown = (e) => {
     if (e.key === 'Enter') ok.click();
@@ -736,7 +753,7 @@ function anchorRow(a, tabs, bindings, depth) {
         render();
       }
     },
-    { icon: 'i-cookie', label: t('clearSiteDataAction'), action: () => clearSiteData(a) },
+    { icon: 'i-cookie', label: t('clearSiteDataAction'), action: () => confirmClearSiteData(a) },
     { sep: true },
     {
       icon: 'i-pencil',
@@ -1064,7 +1081,7 @@ async function render(focusSpaceId = null) {
     const img = document.createElement('img');
     img.className = 'favicon';
     img.alt = '';
-    img.src = tab.favIconUrl || faviconUrl(tab.url);
+    img.src = faviconUrl(tab.url);
     img.onerror = () => { img.onerror = null; img.src = localFallbackFavicon(tab.url); };
 
     const title = document.createElement('span');
@@ -1208,6 +1225,21 @@ function addFolder() {
   });
 }
 
+function confirmClearSiteData(a) {
+  let hostname;
+  try {
+    hostname = new URL(a.url).hostname;
+  } catch {
+    return;
+  }
+  showDialog({
+    title: t('clearSiteDataDialog', hostname),
+    okText: t('clearButton'),
+    danger: true,
+    onOk: () => clearSiteData(a)
+  });
+}
+
 async function clearSiteData(a) {
   let origin, hostname;
   try {
@@ -1216,32 +1248,26 @@ async function clearSiteData(a) {
     hostname = u.hostname;
   } catch (e) { return; }
 
-  // Clear cookies, site storage, and service workers for this exact origin.
-  await chrome.browsingData.remove({ origins: [origin] }, {
-    cookies: true,
-    localStorage: true,
-    indexedDB: true,
-    serviceWorkers: true,
-    cacheStorage: true,
-    fileSystems: true,
-    webSQL: true
-  }).catch(() => {});
-
-  // browsingData does not cover every parent-domain cookie, so remove those explicitly.
-  const bare = hostname.replace(/^www\./, '');
-  const cookies = await chrome.cookies.getAll({ domain: bare }).catch(() => []);
-  await Promise.all(cookies.map(c => {
-    const host = c.domain.replace(/^\./, '');
-    return chrome.cookies.remove({
-      url: (c.secure ? 'https://' : 'http://') + host + c.path,
-      name: c.name,
-      storeId: c.storeId
-    }).catch(() => {});
-  }));
+  try {
+    // Chrome clears cookies for the registrable domain and storage for the
+    // selected origin. No all-site host or cookie-read permission is needed.
+    await chrome.browsingData.remove({ origins: [origin] }, {
+      cookies: true,
+      localStorage: true,
+      indexedDB: true,
+      serviceWorkers: true,
+      cacheStorage: true,
+      fileSystems: true,
+      webSQL: true
+    });
+  } catch (error) {
+    toast(t('siteDataClearErrorToast', error.message));
+    return;
+  }
 
   // Reload the bound tab without HTTP cache; Chromium cannot clear that cache per origin.
   await tabState('reload', { anchorId: a.id }).catch(() => {});
-  toast(t('siteDataClearedToast', [hostname, String(cookies.length)]));
+  toast(t('siteDataClearedToast', hostname));
 }
 
 function addSpace() {
@@ -1332,17 +1358,27 @@ function countAnchors(items) {
 // Parse Arc StorableSidebar.json; the format is the same on Windows and macOS.
 function parseArcSidebar(obj) {
   const container = (obj.sidebar?.containers || []).find(c => c && c.spaces && c.items);
-  if (!container) throw new Error(t('arcInvalidFileError'));
-
-  const itemById = {};
-  for (const it of container.items) {
-    if (it && typeof it === 'object' && it.id) itemById[it.id] = it;
+  if (!container || !Array.isArray(container.spaces) || !Array.isArray(container.items) ||
+      container.spaces.length > DATA_LIMITS.spaces || container.items.length > DATA_LIMITS.anchorsTotal * 2) {
+    throw new Error(t('arcInvalidFileError'));
   }
 
-  const walk = (childIds, into, allowFolders) => {
+  const itemById = new Map();
+  for (const it of container.items) {
+    if (it && typeof it === 'object' && typeof it.id === 'string') itemById.set(it.id, it);
+  }
+
+  let visitedCount = 0;
+  const walk = (childIds, into, allowFolders, ancestors = new Set(), depth = 0) => {
+    if (!Array.isArray(childIds) || depth > 32) throw new Error(t('arcInvalidFileError'));
     for (const cid of (childIds || [])) {
-      const it = itemById[cid];
+      if (typeof cid !== 'string' || ancestors.has(cid)) throw new Error(t('arcInvalidFileError'));
+      const it = itemById.get(cid);
       if (!it) continue;
+      visitedCount++;
+      if (visitedCount > DATA_LIMITS.anchorsTotal * 2) throw new Error(t('arcInvalidFileError'));
+      const nextAncestors = new Set(ancestors);
+      nextAncestors.add(cid);
       const data = it.data || {};
       if (data.tab && data.tab.savedURL) {
         into.push({
@@ -1353,13 +1389,13 @@ function parseArcSidebar(obj) {
       } else if (data.list !== undefined) {
         if (allowFolders) {
           const folder = { id: crypto.randomUUID(), type: 'folder', name: it.title || t('defaultFolderName'), collapsed: true, children: [] };
-          walk(it.childrenIds, folder.children, false); // Flatten nested folders.
+          walk(it.childrenIds, folder.children, false, nextAncestors, depth + 1); // Flatten nested folders.
           if (folder.children.length) into.push(folder);
         } else {
-          walk(it.childrenIds, into, false);
+          walk(it.childrenIds, into, false, nextAncestors, depth + 1);
         }
       } else if (data.splitView !== undefined || data.itemContainer !== undefined) {
-        walk(it.childrenIds, into, allowFolders);
+        walk(it.childrenIds, into, allowFolders, nextAncestors, depth + 1);
       }
     }
   };
@@ -1370,7 +1406,7 @@ function parseArcSidebar(obj) {
     const ids = s.containerIDs || [];
     const pinnedIdx = ids.indexOf('pinned');
     const pinnedId = pinnedIdx >= 0 ? ids[pinnedIdx + 1] : null;
-    const root = pinnedId ? itemById[pinnedId] : null;
+    const root = pinnedId ? itemById.get(pinnedId) : null;
     if (!root) continue;
     const items = [];
     walk(root.childrenIds, items, true);
@@ -1380,15 +1416,56 @@ function parseArcSidebar(obj) {
 }
 
 async function importSpaces(spacesIn, sourceLabel, favoritesIn = []) {
+  if (!Array.isArray(spacesIn) || !Array.isArray(favoritesIn)) {
+    throw new Error(t('invalidImportDataError'));
+  }
+  if (spacesIn.length + meta.spaces.length > DATA_LIMITS.spaces) {
+    throw new Error(t('tooManySpacesError'));
+  }
+
+  // Normalize the complete batch before the first storage write. Imported IDs
+  // are regenerated so repeated imports cannot hijack live anchor bindings.
+  const seenIds = new Set();
+  const preparedSpaces = [];
+  let incomingAnchorCount = 0;
+  for (let index = 0; index < spacesIn.length; index++) {
+    const sp = spacesIn[index];
+    if (!sp || typeof sp !== 'object' || Array.isArray(sp)) throw new Error(t('invalidImportDataError'));
+    const normalized = normalizeAnchorItems(sp.items, {
+      freshIds: true,
+      label: `Imported Space ${index + 1}`,
+      seenIds
+    });
+    incomingAnchorCount += normalized.anchorCount;
+    if (incomingAnchorCount > DATA_LIMITS.anchorsTotal) throw new Error(t('tooManyAnchorsError'));
+    preparedSpaces.push({
+      name: boundedText(sp.name, `Imported Space ${index + 1} name`, DATA_LIMITS.name),
+      color: normalizeColor(sp.color, PALETTE[(meta.spaces.length + index) % PALETTE.length]),
+      icon: normalizeIcon(sp.icon),
+      note: normalizeNote(sp.note),
+      items: normalized.items
+    });
+  }
+  const preparedFavorites = normalizeFavorites(favoritesIn, { freshIds: true, seenIds });
+  incomingAnchorCount += preparedFavorites.length;
+
+  let existingAnchorCount = (meta.favorites || []).length;
+  for (const existingSpace of meta.spaces) {
+    existingAnchorCount += countAnchors(await loadAnchors(existingSpace.id));
+  }
+  if (existingAnchorCount + incomingAnchorCount > DATA_LIMITS.anchorsTotal) {
+    throw new Error(t('tooManyAnchorsError'));
+  }
+
   importing = true;
   try {
     let spaceCount = 0, anchorCount = 0;
-    for (const sp of spacesIn) {
+    for (const sp of preparedSpaces) {
       const space = {
         id: crypto.randomUUID(),
         name: sp.name,
-        color: sp.color || PALETTE[meta.spaces.length % PALETTE.length],
-        icon: sp.icon || ''
+        color: sp.color,
+        icon: sp.icon
       };
       meta.spaces.push(space);
       await saveAnchors(space.id, sp.items);
@@ -1396,7 +1473,7 @@ async function importSpaces(spacesIn, sourceLabel, favoritesIn = []) {
       spaceCount++;
       anchorCount += countAnchors(sp.items);
     }
-    for (const favorite of favoritesIn.slice(0, Math.max(0, FAVORITES_LIMIT - meta.favorites.length))) {
+    for (const favorite of preparedFavorites.slice(0, Math.max(0, FAVORITES_LIMIT - meta.favorites.length))) {
       if (!favorite?.url || isFavoriteUrl(favorite.url)) continue;
       meta.favorites.push({
         id: crypto.randomUUID(),
@@ -1416,8 +1493,12 @@ async function importSpaces(spacesIn, sourceLabel, favoritesIn = []) {
 
 async function handleImportFile(file) {
   try {
+    assertImportFileSize(file);
     const obj = JSON.parse(await file.text());
     if (obj.format === 'anchors-export') {
+      if (obj.version !== undefined && (!Number.isInteger(obj.version) || obj.version < 1 || obj.version > 2)) {
+        throw new Error(t('unsupportedImportVersionError'));
+      }
       await importSpaces(obj.spaces || [], t('anchorsFileSource'), obj.favorites || []);
     } else if (obj.sidebar) {
       await importSpaces(parseArcSidebar(obj), t('arcSource'));
@@ -1704,7 +1785,7 @@ async function reloadSyncedState() {
 
 async function runPlaintextMigration() {
   try {
-    const r = await migratePlaintextGist();
+    const r = await tabState('migrateSync');
     if (r.pulled) await reloadSyncedState();
     toast(t(r.legacyDeleted ? 'syncStatusMigrated' : 'syncStatusMigratedLegacyRetained'));
   } catch (e) {
@@ -1714,9 +1795,32 @@ async function runPlaintextMigration() {
   await updateSyncStatus();
 }
 
+async function resolveConflict(strategy) {
+  try {
+    const result = await tabState('resolveSync', { strategy });
+    if (strategy === 'remote') await reloadSyncedState();
+    toast(t(result.status === 'resolvedRemote' ? 'syncConflictRemoteToast' : 'syncConflictLocalToast'));
+  } catch (error) {
+    toast(t('syncErrorToast', error.message));
+  }
+  await updateSettingsUI();
+  await updateSyncStatus();
+}
+
+function showSyncConflict() {
+  showDialog({
+    title: t('syncConflictDialog'),
+    okText: t('keepThisDeviceButton'),
+    cancelText: t('useRemoteDeviceButton'),
+    danger: true,
+    onOk: () => resolveConflict('local'),
+    onCancel: () => resolveConflict('remote')
+  });
+}
+
 async function runSync() {
   try {
-    const r = await syncNow();
+    const r = await tabState('sync');
     toast(SYNC_STATUS_TEXT[r.status] || r.status);
     if (r.status === 'pulled' || r.status === 'linked') {
       await reloadSyncedState();
@@ -1729,6 +1833,8 @@ async function runSync() {
         danger: true,
         onOk: runPlaintextMigration
       });
+    } else if (e.code === 'SYNC_CONFLICT' || e.message?.includes('Both this device')) {
+      showSyncConflict();
     } else {
       toast(t('syncErrorToast', e.message));
     }
@@ -1924,7 +2030,14 @@ async function init() {
     showDialog({
       title: t('githubTokenDialog'), withInput: true, inputType: 'password', okText: t('saveButton'),
       onOk: async (token) => {
-        await setSyncConfig({ ...cfg, token });
+        await setSyncConfig({
+          ...cfg,
+          token,
+          gistId: '',
+          baseHash: '',
+          baseRevision: '',
+          lastSyncAt: 0
+        });
         if (cfg.encryptionKey) runSync();
         else {
           toast(t('syncEncryptionKeyRequiredToast'));
@@ -1937,7 +2050,9 @@ async function init() {
   $('#sync-key').onclick = async () => {
     const cfg = await getSyncConfig();
     const encryptionKey = cfg.encryptionKey || generateSyncKey();
-    if (!cfg.encryptionKey) await setSyncConfig({ ...cfg, encryptionKey, lastSyncAt: 0 });
+    if (!cfg.encryptionKey) {
+      await setSyncConfig({ ...cfg, encryptionKey, baseHash: '', baseRevision: '', lastSyncAt: 0 });
+    }
     try {
       await navigator.clipboard.writeText(encryptionKey);
       toast(t(cfg.encryptionKey ? 'encryptionKeyCopiedToast' : 'encryptionKeyGeneratedToast'));
@@ -1957,7 +2072,13 @@ async function init() {
       onOk: async (value) => {
         try {
           const encryptionKey = normalizeSyncKey(value);
-          await setSyncConfig({ ...cfg, encryptionKey, lastSyncAt: 0 });
+          await setSyncConfig({
+            ...cfg,
+            encryptionKey,
+            baseHash: '',
+            baseRevision: '',
+            lastSyncAt: 0
+          });
           toast(t('encryptionKeySavedToast'));
           await updateSettingsUI();
           await updateSyncStatus();
@@ -2026,7 +2147,7 @@ async function init() {
   // Pull any changes made on another device when the panel opens.
   const cfg = await getSyncConfig();
   if (cfg.token && cfg.encryptionKey) {
-    syncNow().then(r => {
+    tabState('sync').then(r => {
       if (r.status === 'pulled' || r.status === 'linked') {
         toast(SYNC_STATUS_TEXT[r.status]);
       }

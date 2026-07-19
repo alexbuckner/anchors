@@ -21,6 +21,10 @@ Anchors uses three Chrome Storage areas:
   local assignment can be recovered after session restore. It is not sent to
   Gist or another device.
 
+Anchors restricts the three Chrome Storage areas to trusted extension contexts.
+It has no content scripts. Incognito mode is disabled, so private-window tabs
+and URLs are excluded from Anchors state.
+
 If another device running an older release writes legacy Anchors keys back to
 browser sync, the current release removes those keys without treating them as a
 new synchronization source. GitHub Gist is the only supported cross-device
@@ -38,6 +42,11 @@ Anchors generates a fresh random 96-bit AES-GCM nonce for every write. The
 envelope also contains the format version, algorithm name, and a short key
 identifier. These fields do not contain sidebar data. Authenticated decryption
 must succeed before remote data is applied or replaced.
+
+Encrypted snapshots also contain revision ancestry. Locally stored content
+hashes combine with that ancestry to detect concurrent device changes. A
+conflict stops automatic synchronization and requires the user to choose one
+complete snapshot; neither branch is silently overwritten.
 
 The GitHub token:
 
@@ -75,13 +84,15 @@ The extension code uses no other external services.
 ## Clearing site data
 
 The **Clear cookies and site data** command runs only after an explicit action
-in an anchor menu. It removes cookies and storage for the selected origin,
-including Local Storage, IndexedDB, Cache Storage, and Service Workers. It does
-not remove browsing history, bookmarks, downloads, or saved passwords.
+and confirmation in an anchor menu. It removes storage for the selected origin,
+including Local Storage, IndexedDB, Cache Storage, and Service Workers. Chromium
+may also remove cookies for the registrable domain and related subdomains; the
+confirmation warns about this scope. It does not remove browsing history,
+bookmarks, downloads, or saved passwords.
 
-The `browsingData`, `cookies`, and `<all_urls>` permissions are required because
-an anchor may point to a website on any domain. Anchors never clears site data
-automatically.
+The `browsingData` permission is used for this action. Anchors does not request
+the `cookies` permission or access to all website origins, and never clears site
+data automatically.
 
 ## Deleting data
 
@@ -106,6 +117,7 @@ automatically.
 | `alarms` | Run periodic tab maintenance and Gist sync. |
 | `favicon` | Load favicons through Chromium. |
 | `sidePanel` | Display the side-panel interface. |
-| `browsingData`, `cookies`, `<all_urls>` | Clear data for a selected site after an explicit user action. |
+| `browsingData` | Clear data for a selected site after explicit confirmation. |
+| `https://api.github.com/*` | Connect only to GitHub's API when optional Gist sync is enabled. |
 
 Privacy questions can be submitted through the repository's Issues page.

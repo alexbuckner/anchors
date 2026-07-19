@@ -233,7 +233,7 @@ function setFixture({ keepAnchorTabs = false, restored = [] } = {}) {
     const tab = {
       id: item.id, windowId: item.windowId || 1, index: windowTabs(item.windowId || 1).length,
       url: item.url, title: item.url, active: !!item.active,
-      pinned: false, audible: false, discarded: false
+      pinned: false, audible: false, discarded: false, incognito: !!item.incognito
     };
     tabs.set(tab.id, tab);
     if (item.spaceId) tabValues.set(tab.id, { anchorsSpaceId: item.spaceId });
@@ -268,15 +268,38 @@ test('Vivaldi-like partial sidePanel API still registers and answers tab message
 
   const handshake = await send('handshake');
   assert.equal(handshake.ok, true);
-  assert.equal(handshake.protocolVersion, 3);
+  assert.equal(handshake.protocolVersion, 4);
 
   const repaired = await send('repair');
   assert.equal(repaired.ok, true);
-  assert.equal(repaired.protocolVersion, 3);
+  assert.equal(repaired.protocolVersion, 4);
 
   const opened = await send('open', { anchorId: 'a', windowId: 1 });
   assert.equal(typeof opened.tabId, 'number');
   assert.deepEqual(sessionState.bindings, { a: opened.tabId });
+});
+
+test('messages from an untrusted runtime sender are ignored', () => {
+  const listener = events.onMessage.listeners[0];
+  let answered = false;
+  const returned = listener(
+    { scope: 'anchors-tab-state', action: 'open', anchorId: 'a', windowId: 1 },
+    { id: 'another-extension', url: 'https://attacker.test/' },
+    () => { answered = true; }
+  );
+  assert.equal(returned, undefined);
+  assert.equal(answered, false);
+  assert.equal(createCount, 0);
+});
+
+test('incognito tabs never enter bindings or Today Space state', async () => {
+  setFixture({ restored: [{ id: 7, url: 'https://a.test/', active: true, incognito: true }] });
+  events.onUpdated.emit(7, { url: 'https://a.test/' }, tabCopy(tabs.get(7)));
+  await drain();
+
+  assert.equal(sessionState.bindings?.a, undefined);
+  assert.equal(sessionState.tabSpaces?.[7], undefined);
+  assert.equal(tabs.has(7), true);
 });
 
 test('A to B to A reuses one tab and keeps URL and binding aligned', async () => {

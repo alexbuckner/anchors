@@ -200,6 +200,12 @@
   "clearSiteDataAction": {
     "message": "Clear cookies and site data"
   },
+  "clearSiteDataDialog": {
+    "message": "Clear cookies and site data for $HOST$ and its related domain? This may sign you out of related subdomains.",
+    "placeholders": {
+      "host": { "content": "$1" }
+    }
+  },
   "renameAction": {
     "message": "Rename"
   },
@@ -306,10 +312,15 @@
     "message": "New folder"
   },
   "siteDataClearedToast": {
-    "message": "Cleared data for $HOST$ ($COUNT$ cookies)",
+    "message": "Cleared data for $HOST$",
     "placeholders": {
-      "host": { "content": "$1" },
-      "count": { "content": "$2" }
+      "host": { "content": "$1" }
+    }
+  },
+  "siteDataClearErrorToast": {
+    "message": "Could not clear site data: $ERROR$",
+    "placeholders": {
+      "error": { "content": "$1" }
     }
   },
   "newSpaceDialog": {
@@ -359,6 +370,18 @@
       "error": { "content": "$1" }
     }
   },
+  "invalidImportDataError": {
+    "message": "The import data is invalid"
+  },
+  "unsupportedImportVersionError": {
+    "message": "This Anchors export version is not supported"
+  },
+  "tooManySpacesError": {
+    "message": "The import contains too many Spaces"
+  },
+  "tooManyAnchorsError": {
+    "message": "The import contains too many anchors"
+  },
   "syncStatusOff": {
     "message": "Sync is off — add a GitHub token"
   },
@@ -388,6 +411,21 @@
     "placeholders": {
       "error": { "content": "$1" }
     }
+  },
+  "syncConflictDialog": {
+    "message": "Both this device and another device changed since the last sync. Choose which complete version to keep."
+  },
+  "keepThisDeviceButton": {
+    "message": "Keep this device"
+  },
+  "useRemoteDeviceButton": {
+    "message": "Use other device"
+  },
+  "syncConflictLocalToast": {
+    "message": "Kept this device and uploaded it"
+  },
+  "syncConflictRemoteToast": {
+    "message": "Applied the other device version"
   },
   "syncEnabledStatus": {
     "message": "Sync enabled"

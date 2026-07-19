@@ -9,6 +9,15 @@ const STORAGE_VERSION = 2;
 const STORAGE_VERSION_KEY = 'anchorsStorageVersion';
 const SYNCED_PREFIXES = ['anchors_', 'note_'];
 
+export async function restrictStorageAccess() {
+  const trustedOnly = { accessLevel: 'TRUSTED_CONTEXTS' };
+  await Promise.all([
+    chrome.storage.local.setAccessLevel?.(trustedOnly),
+    chrome.storage.sync.setAccessLevel?.(trustedOnly),
+    chrome.storage.session.setAccessLevel?.(trustedOnly)
+  ].filter(Boolean));
+}
+
 export function isPersistentKey(key) {
   return key === 'meta' || key === 'updatedAt' || SYNCED_PREFIXES.some(prefix => key.startsWith(prefix));
 }
@@ -112,7 +121,7 @@ export async function loadMeta() {
   return fresh;
 }
 
-// updatedAt is the last-write-wins marker used by Gist sync.
+// updatedAt records the latest local edit and remains a legacy-sync fallback.
 async function touch() {
   await chrome.storage.local.set({ updatedAt: Date.now() });
 }

@@ -2,10 +2,11 @@
 //
 // The GitHub token and AES key stay in storage.local and are never written to
 // browser sync, the Gist, or an Anchors export. GitHub only receives an AES-GCM
-// envelope. Concurrent edits still use last-write-wins by the encrypted
-// state's updatedAt marker; the newer complete snapshot wins.
+// envelope. Authenticated revision ancestry and content hashes stop concurrent
+// device branches for explicit whole-snapshot resolution.
 
 import { ensureLocalStorage } from './shared.js';
+import { DataValidationError, DATA_LIMITS, validateSyncState } from './data-schema.js';
 
 const FILE = 'anchors-sync.enc.json';
 const LEGACY_FILE = 'anchors-sync.json';
@@ -72,13 +73,15 @@ async function keyId(value) {
   return bytesToBase64Url(new Uint8Array(digest).slice(0, 9));
 }
 
-function validateState(state) {
-  if (!state || typeof state !== 'object' || Array.isArray(state) ||
-      !Number.isFinite(state.updatedAt) || state.updatedAt < 0 ||
-      !state.data || typeof state.data !== 'object' || Array.isArray(state.data)) {
-    throw new SyncError('INVALID_REMOTE', 'The remote sync data is invalid');
+function validateState(state, code = 'INVALID_REMOTE') {
+  try {
+    return validateSyncState(state);
+  } catch (error) {
+    if (error instanceof DataValidationError) {
+      throw new SyncError(code, error.message, error);
+    }
+    throw error;
   }
-  return state;
 }
 
 function isEncryptedEnvelope(value) {
@@ -86,9 +89,9 @@ function isEncryptedEnvelope(value) {
 }
 
 export async function encryptSyncState(state, encryptionKey) {
-  validateState(state);
+  const validated = validateState(state, 'INVALID_LOCAL');
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const plaintext = new TextEncoder().encode(JSON.stringify(state));
+  const plaintext = new TextEncoder().encode(JSON.stringify(validated));
   const key = await importAesKey(encryptionKey);
   const ciphertext = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv, additionalData: AAD, tagLength: 128 },
@@ -145,7 +148,11 @@ export async function decryptSyncState(envelope, encryptionKey) {
 
 export async function getSyncConfig() {
   const { syncConfig } = await chrome.storage.local.get('syncConfig');
-  return { token: '', gistId: '', lastSyncAt: 0, encryptionKey: '', ...(syncConfig || {}) };
+  return {
+    token: '', gistId: '', lastSyncAt: 0, encryptionKey: '',
+    baseHash: '', baseRevision: '',
+    ...(syncConfig || {})
+  };
 }
 
 export async function setSyncConfig(cfg) {
@@ -190,10 +197,11 @@ async function collectState() {
   for (const [k, v] of Object.entries(all)) {
     if (isSyncedKey(k)) state.data[k] = v;
   }
-  return state;
+  return validateState(state, 'INVALID_LOCAL');
 }
 
 async function applyState(state) {
+  state = validateState(state);
   await ensureLocalStorage();
   const data = state.data || state.anchors || {}; // .anchors is the legacy format.
   const all = await chrome.storage.local.get(null);
@@ -221,13 +229,93 @@ function parseFile(file) {
   }
 }
 
+function canonicalJson(value) {
+  if (Array.isArray(value)) return '[' + value.map(canonicalJson).join(',') + ']';
+  if (value && typeof value === 'object') {
+    return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonicalJson(value[key])).join(',') + '}';
+  }
+  return JSON.stringify(value);
+}
+
+async function contentHash(state) {
+  const bytes = new TextEncoder().encode(canonicalJson({ meta: state.meta, data: state.data }));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return bytesToBase64Url(new Uint8Array(digest));
+}
+
+function stampState(state, previous = null) {
+  const lineage = previous?.revision
+    ? [previous.revision, ...(previous.lineage || [])].slice(0, DATA_LIMITS.lineage)
+    : [];
+  return validateState({
+    ...state,
+    syncMeta: { revision: crypto.randomUUID(), lineage }
+  }, 'INVALID_LOCAL');
+}
+
+async function finishSync(cfg, state) {
+  cfg.baseHash = await contentHash(state);
+  cfg.baseRevision = state.syncMeta?.revision || '';
+  cfg.lastSyncAt = Date.now();
+  await setSyncConfig(cfg);
+}
+
+function revisionOf(state) {
+  return state.syncMeta?.revision || '';
+}
+
+function descendsFrom(state, revision) {
+  if (!revision) return true;
+  return revisionOf(state) === revision || (state.syncMeta?.lineage || []).includes(revision);
+}
+
+function conflict() {
+  throw new SyncError(
+    'SYNC_CONFLICT',
+    'Both this device and another device changed since the last sync'
+  );
+}
+
+async function encryptedRemote(cfg) {
+  const gist = await gh(cfg.token, '/gists/' + cfg.gistId);
+  const remoteFile = fileFromGist(gist);
+  const remoteDocument = parseFile(remoteFile.file);
+  if (remoteFile.legacy || !isEncryptedEnvelope(remoteDocument)) {
+    throw new SyncError(
+      'PLAINTEXT_GIST',
+      'The existing Gist is not encrypted and requires explicit migration'
+    );
+  }
+  return { gist, state: await decryptSyncState(remoteDocument, cfg.encryptionKey) };
+}
+
+async function pushState(cfg, local, expectedRemote) {
+  // Re-read immediately before PATCH. GitHub Gists do not expose an atomic
+  // compare-and-swap operation, so the encrypted revision lineage also detects
+  // a crossing write on the next sync instead of silently accepting it.
+  const latest = (await encryptedRemote(cfg)).state;
+  const [expectedHash, latestHash] = await Promise.all([
+    contentHash(expectedRemote), contentHash(latest)
+  ]);
+  if (expectedHash !== latestHash || revisionOf(expectedRemote) !== revisionOf(latest)) conflict();
+
+  const outgoing = stampState(local, latest.syncMeta);
+  const envelope = await encryptSyncState(outgoing, cfg.encryptionKey);
+  await gh(cfg.token, '/gists/' + cfg.gistId, 'PATCH', {
+    files: { [FILE]: { content: JSON.stringify(envelope) } }
+  });
+  return outgoing;
+}
+
 async function createEncryptedGist(cfg, state) {
-  const envelope = await encryptSyncState(state, cfg.encryptionKey);
-  return gh(cfg.token, '/gists', 'POST', {
+  const outgoing = stampState(state);
+  const envelope = await encryptSyncState(outgoing, cfg.encryptionKey);
+  const gist = await gh(cfg.token, '/gists', 'POST', {
     description: 'Anchors end-to-end encrypted sync',
     public: false,
     files: { [FILE]: { content: JSON.stringify(envelope) } }
   });
+  return { gist, state: outgoing };
 }
 
 function requireEncryptionKey(cfg) {
@@ -251,49 +339,81 @@ export async function syncNow() {
       justLinked = true;
       await setSyncConfig(cfg);
     } else {
-      const gist = await createEncryptedGist(cfg, local);
-      cfg.gistId = gist.id;
-      cfg.lastSyncAt = Date.now();
-      await setSyncConfig(cfg);
+      const created = await createEncryptedGist(cfg, local);
+      cfg.gistId = created.gist.id;
+      await finishSync(cfg, created.state);
       return { status: 'created' };
     }
   }
 
-  const gist = await gh(cfg.token, '/gists/' + cfg.gistId);
-  const remoteFile = fileFromGist(gist);
-  const remoteDocument = parseFile(remoteFile.file);
-  if (remoteFile.legacy || !isEncryptedEnvelope(remoteDocument)) {
-    throw new SyncError(
-      'PLAINTEXT_GIST',
-      'The existing Gist is not encrypted and requires explicit migration'
-    );
+  const remote = (await encryptedRemote(cfg)).state;
+  const [localHash, remoteHash] = await Promise.all([contentHash(local), contentHash(remote)]);
+
+  if (localHash === remoteHash) {
+    await finishSync(cfg, remote);
+    return { status: 'uptodate' };
   }
-  const remote = await decryptSyncState(remoteDocument, cfg.encryptionKey);
+
+  if (cfg.baseHash) {
+    const localChanged = localHash !== cfg.baseHash;
+    const remoteChanged = remoteHash !== cfg.baseHash;
+    if ((remoteChanged && !descendsFrom(remote, cfg.baseRevision)) ||
+        (localChanged && remoteChanged)) {
+      conflict();
+    }
+    if (remoteChanged) {
+      await applyState(remote);
+      await finishSync(cfg, remote);
+      return { status: justLinked ? 'linked' : 'pulled' };
+    }
+    if (localChanged) {
+      const outgoing = await pushState(cfg, local, remote);
+      await finishSync(cfg, outgoing);
+      return { status: 'pushed' };
+    }
+    conflict();
+  }
 
   if (remote.updatedAt > local.updatedAt) {
     await applyState(remote);
-    cfg.lastSyncAt = Date.now();
-    await setSyncConfig(cfg);
+    await finishSync(cfg, remote);
     return { status: justLinked ? 'linked' : 'pulled' };
   }
 
   if (local.updatedAt > remote.updatedAt) {
-    const envelope = await encryptSyncState(local, cfg.encryptionKey);
-    await gh(cfg.token, '/gists/' + cfg.gistId, 'PATCH', {
-      files: { [FILE]: { content: JSON.stringify(envelope) } }
-    });
-    cfg.lastSyncAt = Date.now();
-    await setSyncConfig(cfg);
+    const outgoing = await pushState(cfg, local, remote);
+    await finishSync(cfg, outgoing);
     return { status: 'pushed' };
   }
 
-  cfg.lastSyncAt = Date.now();
-  await setSyncConfig(cfg);
-  return { status: 'uptodate' };
+  // Equal wall-clock timestamps with different authenticated content are not
+  // equivalent. Stop instead of choosing an arbitrary winner.
+  conflict();
 }
 
-// Explicitly migrates a legacy plaintext Gist. The selected last-write-wins
-// snapshot is first uploaded to a new encrypted Gist. Only after that succeeds
+export async function resolveSyncConflict(strategy) {
+  if (strategy !== 'local' && strategy !== 'remote') {
+    throw new SyncError('INVALID_RESOLUTION', 'Unknown sync conflict resolution');
+  }
+  const cfg = await getSyncConfig();
+  if (!cfg.token || !cfg.gistId) throw new SyncError('MISSING_SYNC', 'Sync is not connected');
+  cfg.encryptionKey = requireEncryptionKey(cfg);
+  const [local, remoteResult] = await Promise.all([collectState(), encryptedRemote(cfg)]);
+  const remote = remoteResult.state;
+
+  if (strategy === 'remote') {
+    await applyState(remote);
+    await finishSync(cfg, remote);
+    return { status: 'resolvedRemote' };
+  }
+
+  const outgoing = await pushState(cfg, local, remote);
+  await finishSync(cfg, outgoing);
+  return { status: 'resolvedLocal' };
+}
+
+// Explicitly migrates a legacy plaintext Gist. The newer timestamped snapshot
+// is first uploaded to a new encrypted Gist. Only after that succeeds
 // do we switch configuration and delete the old Gist.
 export async function migratePlaintextGist() {
   const cfg = await getSyncConfig();
@@ -330,9 +450,8 @@ export async function migratePlaintextGist() {
   const replacement = await createEncryptedGist(cfg, selected);
   if (useRemote) await applyState(remote);
 
-  cfg.gistId = replacement.id;
-  cfg.lastSyncAt = Date.now();
-  await setSyncConfig(cfg);
+  cfg.gistId = replacement.gist.id;
+  await finishSync(cfg, replacement.state);
 
   let legacyDeleted = false;
   try {

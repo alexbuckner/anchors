@@ -40,13 +40,27 @@ test('manifest, package, and README versions agree', async () => {
     read('package.json').then(JSON.parse),
     read('README.md')
   ]);
-  assert.equal(manifest.version, '0.9.0');
+  assert.equal(manifest.version, '0.9.1');
   assert.equal(pkg.version, manifest.version);
   assert.match(readme, new RegExp(`Current version: \\*\\*${manifest.version.replaceAll('.', '\\.')}\\*\\*\\.`));
   assert.deepEqual(manifest.permissions, [
-    'tabs', 'storage', 'sessions', 'alarms', 'favicon', 'sidePanel', 'browsingData', 'cookies'
+    'tabs', 'storage', 'sessions', 'alarms', 'favicon', 'sidePanel', 'browsingData'
   ]);
-  assert.deepEqual(manifest.host_permissions, ['<all_urls>']);
+  assert.deepEqual(manifest.host_permissions, ['https://api.github.com/*']);
+  assert.equal(manifest.incognito, 'not_allowed');
+  assert.match(manifest.content_security_policy.extension_pages, /connect-src https:\/\/api\.github\.com/);
+  assert.doesNotMatch(manifest.content_security_policy.extension_pages, /object-src 'self'/);
+});
+
+test('runtime source does not use direct cookie access or broad host permissions', async () => {
+  const [manifest, panelJs, backgroundJs] = await Promise.all([
+    read('manifest.json').then(JSON.parse),
+    read('panel.js'),
+    read('background.js')
+  ]);
+  assert.equal(manifest.host_permissions.includes('<all_urls>'), false);
+  assert.doesNotMatch(panelJs, /chrome\.cookies/);
+  assert.doesNotMatch(backgroundJs, /chrome\.cookies/);
 });
 
 test('manifest icons exist as correctly sized PNGs', async () => {

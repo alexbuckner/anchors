@@ -2,7 +2,7 @@ import {
   loadMeta, loadAllAnchors, normalizeUrl,
   getBindings, setBindings, getLastActive, setLastActive,
   getWorkspaceState, setWorkspaceState,
-  ensureLocalStorage, isPersistentKey, purgeLegacyBrowserSync
+  ensureLocalStorage, isPersistentKey, purgeLegacyBrowserSync, restrictStorageAccess
 } from './shared.js';
 import {
   assignAnchorTab, pruneTabState, releaseAnchors,
@@ -12,7 +12,7 @@ import {
   activateWorkspace, removeWorkspaceTab, repairWorkspaceState,
   replaceWorkspaceTab, touchWorkspaceTab
 } from './workspace-state.js';
-import { syncNow } from './sync.js';
+import { migratePlaintextGist, resolveSyncConflict, syncNow } from './sync.js';
 
 // Clicking the extension action opens the side panel in Chrome, Edge, and Brave.
 // Vivaldi uses panel.html as a manually configured Web Panel; see README.
@@ -24,7 +24,7 @@ try {
 }
 
 const TAB_MESSAGE_SCOPE = 'anchors-tab-state';
-const RUNTIME_PROTOCOL_VERSION = 3;
+const RUNTIME_PROTOCOL_VERSION = 4;
 const TAB_SPACE_SESSION_KEY = 'anchorsSpaceId';
 const isWebUrl = (u) => typeof u === 'string' && (u.startsWith('http://') || u.startsWith('https://'));
 
@@ -35,6 +35,13 @@ let tabStateQueue = Promise.resolve();
 function enqueueTabState(task) {
   const run = tabStateQueue.then(task, task);
   tabStateQueue = run.catch(() => {});
+  return run;
+}
+
+let syncQueue = Promise.resolve();
+function enqueueSync(task) {
+  const run = syncQueue.then(task, task);
+  syncQueue = run.catch(() => {});
   return run;
 }
 
@@ -70,6 +77,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 // Upgrade legacy plaintext browser-sync data as soon as the worker wakes, even
 // if the side panel has not been opened yet.
+restrictStorageAccess().catch(() => {});
 ensureLocalStorage().catch(() => {});
 
 // ---------- runtime tab state ----------
@@ -173,7 +181,7 @@ async function reconcileSingleWindows(ctx) {
 
 async function prepareRuntime({ reconcileSingle = false } = {}) {
   const meta = await loadMeta();
-  const [anchors, allTabs, bindings, lastActive, seen, workspace] = await Promise.all([
+  const [anchors, queriedTabs, bindings, lastActive, seen, workspace] = await Promise.all([
     loadAllAnchors(meta),
     chrome.tabs.query({}),
     getBindings(),
@@ -181,6 +189,9 @@ async function prepareRuntime({ reconcileSingle = false } = {}) {
     getTabSeen(),
     getWorkspaceState()
   ]);
+  // Even if a browser preserves a previous Allow-in-incognito toggle across an
+  // update, private tabs never enter persistent or cross-window state.
+  const allTabs = queriedTabs.filter(tab => !tab.incognito);
   const now = Date.now();
   const liveTabIds = new Set(allTabs.map(tab => tab.id));
   const plan = pruneTabState({
@@ -364,6 +375,7 @@ async function bindAnchor(anchorId, tabId) {
   if (!ctx.anchors.some(anchor => anchor.id === anchorId)) throw new Error('Anchor not found');
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab) throw new Error('Tab not found');
+  if (tab.incognito) throw new Error('Incognito tabs are not supported');
   await assignInContext(ctx, anchorId, tab);
   return { tabId: tab.id, windowId: tab.windowId };
 }
@@ -460,6 +472,7 @@ async function handleDuplicateNavigation(tabId, changeInfo) {
   if (!meta.settings.dedup || Object.values(bindings).includes(tabId)) return;
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab) return;
+  if (tab.incognito) return;
   if (normalizeUrl(tab.url) !== normalizeUrl(changeInfo.url)) return;
   const preliminaryAnchors = await loadAllAnchors(meta);
   if (!preliminaryAnchors.some(item => normalizeUrl(item.url) === normalizeUrl(tab.url))) return;
@@ -539,6 +552,7 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
     const ctx = await prepareRuntime();
     ctx.lastActive = touchTab({ bindings: ctx.bindings, lastActive: ctx.lastActive, tabId });
     const tab = ctx.allTabs.find(item => item.id === tabId) || await chrome.tabs.get(tabId).catch(() => null);
+    if (tab?.incognito) return;
     ctx.workspace = touchWorkspaceTab({
       state: ctx.workspace,
       tab,
@@ -557,7 +571,7 @@ chrome.tabs.onAttached.addListener((tabId) => {
     const owner = Object.entries(ctx.bindings).find(([, boundTabId]) => boundTabId === tabId)?.[0];
     if (!owner) return;
     const tab = await chrome.tabs.get(tabId).catch(() => null);
-    if (tab) await assignInContext(ctx, owner, tab);
+    if (tab && !tab.incognito) await assignInContext(ctx, owner, tab);
   }).catch(() => {});
 });
 
@@ -568,29 +582,63 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 
 // ---------- panel commands ----------
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+function trustedPanelSender(sender) {
+  if (sender?.id && sender.id !== chrome.runtime.id) return false;
+  if (!sender?.url) return true; // Browser lifecycle tests and worker-owned calls.
+  try {
+    return new URL(sender.url).origin === new URL(chrome.runtime.getURL('/')).origin;
+  } catch {
+    return false;
+  }
+}
+
+function messageId(value, label) {
+  if (typeof value !== 'string' || !value || value.length > 128) throw new Error(`${label} is invalid`);
+  return value;
+}
+
+function messageNumber(value, label) {
+  if (!Number.isInteger(value) || value < 0) throw new Error(`${label} is invalid`);
+  return value;
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || message.scope !== TAB_MESSAGE_SCOPE) return undefined;
+  if (!trustedPanelSender(sender)) return undefined;
 
   const handlers = {
     handshake: async () => ({ protocolVersion: RUNTIME_PROTOCOL_VERSION }),
-    open: () => openAnchor(message.anchorId, message.windowId),
-    bind: () => bindAnchor(message.anchorId, message.tabId),
-    goHome: () => goHome(message.anchorId, message.windowId),
-    popOut: () => popOutAnchor(message.anchorId),
-    reload: () => reloadAnchor(message.anchorId),
+    open: () => openAnchor(messageId(message.anchorId, 'Anchor ID'), messageNumber(message.windowId, 'Window ID')),
+    bind: () => bindAnchor(messageId(message.anchorId, 'Anchor ID'), messageNumber(message.tabId, 'Tab ID')),
+    goHome: () => goHome(messageId(message.anchorId, 'Anchor ID'), messageNumber(message.windowId, 'Window ID')),
+    popOut: () => popOutAnchor(messageId(message.anchorId, 'Anchor ID')),
+    reload: () => reloadAnchor(messageId(message.anchorId, 'Anchor ID')),
     spaceState: async () => {
+      const windowId = messageNumber(message.windowId, 'Window ID');
       const ctx = await prepareRuntime();
       return {
-        activeSpaceId: ctx.workspace.activeSpaces[message.windowId] ||
+        activeSpaceId: ctx.workspace.activeSpaces[windowId] ||
           ctx.meta.activeSpaceId || ctx.meta.spaces[0]?.id || null,
         tabSpaces: ctx.workspace.tabSpaces
       };
     },
-    activateSpace: () => activateSpace(message.spaceId, message.windowId, message.focusTab !== false),
-    moveToday: () => moveTodayTab(message.tabId, message.spaceId),
+    activateSpace: () => activateSpace(
+      messageId(message.spaceId, 'Space ID'),
+      messageNumber(message.windowId, 'Window ID'),
+      message.focusTab !== false
+    ),
+    moveToday: () => moveTodayTab(
+      messageNumber(message.tabId, 'Tab ID'),
+      messageId(message.spaceId, 'Space ID')
+    ),
     release: async () => {
+      if (!Array.isArray(message.anchorIds) || message.anchorIds.length > 10000) {
+        throw new Error('Anchor IDs are invalid');
+      }
+      const anchorIds = message.anchorIds.map(id => messageId(id, 'Anchor ID'));
+      const spaceId = message.spaceId == null ? null : messageId(message.spaceId, 'Space ID');
       const ctx = await prepareRuntime();
-      await releaseInContext(ctx, message.anchorIds || [], message.spaceId || null);
+      await releaseInContext(ctx, anchorIds, spaceId);
       return {};
     },
     repair: async () => {
@@ -599,7 +647,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         bindingCount: Object.keys(ctx.bindings).length,
         protocolVersion: RUNTIME_PROTOCOL_VERSION
       };
-    }
+    },
+    sync: () => syncNow(),
+    migrateSync: () => migratePlaintextGist(),
+    resolveSync: () => resolveSyncConflict(message.strategy)
   };
   const handler = handlers[message.action];
   if (!handler) {
@@ -607,9 +658,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return undefined;
   }
 
-  enqueueTabState(handler).then(
+  const serialize = ['sync', 'migrateSync', 'resolveSync'].includes(message.action)
+    ? enqueueSync
+    : enqueueTabState;
+  serialize(handler).then(
     result => sendResponse(Object.assign({ ok: true }, result || {})),
-    error => sendResponse({ ok: false, error: error?.message || String(error) })
+    error => sendResponse({ ok: false, error: error?.message || String(error), code: error?.code || '' })
   );
   return true;
 });
@@ -683,7 +737,7 @@ async function runMaintenance() {
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'gistSync' || alarm.name === 'gistPush') {
-    await syncNow().catch(() => {});
+    await enqueueSync(syncNow).catch(() => {});
     return;
   }
   if (alarm.name === 'maintenance' || alarm.name === 'autoReset') {

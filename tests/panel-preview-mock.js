@@ -48,7 +48,12 @@
       'anchors_travel__0': [],
       note_work: 'Ship the next focused release.'
     },
-    local: { archive: [], syncConfig: { token: '', gistId: '', lastSyncAt: 0 } },
+    local: {
+      archive: [],
+      syncConfig: window.parent.location.search.includes('open=conflict')
+        ? { token: 'preview-token', gistId: 'preview', lastSyncAt: Date.now(), encryptionKey: 'preview-key' }
+        : { token: '', gistId: '', lastSyncAt: 0 }
+    },
     session: {
       bindings: { github: 1, chatgpt: 2 },
       lastActive: { github: Date.now(), chatgpt: Date.now() },
@@ -89,9 +94,16 @@
   window.chrome = {
     i18n: { getMessage: translate },
     runtime: {
-      getManifest: () => ({ version: '0.9.0' }),
+      getManifest: () => ({ version: '0.9.1' }),
       getURL: path => new URL(path.replace(/^\//, ''), window.parent.location.origin + '/').href,
       sendMessage: async message => {
+        if (message.action === 'sync' && window.parent.location.search.includes('open=conflict')) {
+          return {
+            ok: false,
+            code: 'SYNC_CONFLICT',
+            error: 'Both this device and another device changed since the last sync'
+          };
+        }
         if (message.action === 'spaceState') {
           return { ok: true, activeSpaceId: stores.session.activeSpaces[1], tabSpaces: clone(stores.session.tabSpaces) };
         }
@@ -99,7 +111,7 @@
           stores.session.activeSpaces[message.windowId] = message.spaceId;
           return { ok: true, activeSpaceId: message.spaceId, tabId: null };
         }
-        return { ok: true, bindingCount: 2, protocolVersion: 3 };
+        return { ok: true, bindingCount: 2, protocolVersion: 4 };
       },
       reload: () => {}
     },
@@ -132,7 +144,6 @@
       create: async () => {},
       remove: async () => {}
     },
-    browsingData: { remove: async () => {} },
-    cookies: { getAll: async () => [], remove: async () => {} }
+    browsingData: { remove: async () => {} }
   };
 })();

@@ -6,7 +6,7 @@ side panel: every anchor has a saved home URL, while regular tabs stay in the
 Today section of their Space. By default, anchors reuse one live browser tab per
 window instead of filling the native tab strip.
 
-Current version: **0.9.0**.
+Current version: **0.9.1**.
 
 ![Anchors main panel](docs/screenshots/panel-overview.png)
 
@@ -98,6 +98,11 @@ the same Go Home action.
 Anchors imports non-empty spaces and their pinned items. Nested folders are
 flattened to one level. Arc browsing history and unpinned tabs are not imported.
 
+Import files are limited to 5 MiB and validated completely before Anchors writes
+anything. Imports accept only HTTP(S) URLs, bounded text and counts, known data
+shapes, and one-level folders. New IDs are generated for imported records so a
+file cannot take over existing live tab bindings.
+
 An Anchors export contains Favorites, spaces, anchors, folders, and notes. It does not
 contain the local archive, GitHub token, or sync encryption key.
 
@@ -121,9 +126,12 @@ On another device, connect a GitHub token for the same account, select
 separate minimum-scope token per device makes individual revocation possible.
 
 Anchors schedules a push about 30 seconds after a local edit and checks for
-remote updates about every 5 minutes. Sync uses last-write-wins without merging:
-simultaneous edits on two devices can cause the later complete snapshot to
-replace the earlier one.
+remote updates about every 5 minutes. Each encrypted snapshot carries a random
+revision and a bounded parent lineage. Content hashes let Anchors distinguish
+local-only, remote-only, and concurrent changes. A concurrent change stops
+automatic sync and asks whether to keep this device or use the other device;
+it is never overwritten silently. Conflict resolution operates on the complete
+snapshot rather than merging individual anchors.
 
 Gist snapshots are end-to-end encrypted with AES-256-GCM using a fresh random
 nonce for every write. GitHub receives an envelope containing ciphertext and
@@ -155,15 +163,16 @@ See the [official GitHub Gists API documentation](https://docs.github.com/en/res
 | `alarms` | Run auto-reset, suspension, archiving, and background Gist sync. |
 | `favicon` | Load site icons through Chromium's internal favicon API. |
 | `sidePanel` | Display Anchors in the browser Side Panel. |
-| `browsingData` | Clear storage for one selected site after an explicit user action. |
-| `cookies` | Find and remove domain cookies for that same explicit action. |
-| `<all_urls>` | Work with tabs and cookies on any site the user chooses to save as an anchor. |
+| `browsingData` | Clear storage and related-domain cookies for one selected site after explicit confirmation. |
+
+The only host permission is `https://api.github.com/*`, used for optional Gist
+sync. Anchors does not request access to every website.
 
 Site-data cleanup runs only from the menu of a specific anchor. Anchors does not
-delete browsing history or passwords and does not inject content scripts into
-web pages. See [PRIVACY.md](PRIVACY.md) and Chromium's documentation for
+delete browsing history or passwords, does not inject content scripts into web
+pages, and displays a confirmation that cookies for related subdomains may also
+be removed. See [PRIVACY.md](PRIVACY.md) and Chromium's documentation for
 [`browsingData`](https://developer.chrome.com/docs/extensions/reference/api/browsingData),
-[`cookies`](https://developer.chrome.com/docs/extensions/reference/api/cookies),
 and [`sidePanel`](https://developer.chrome.com/docs/extensions/reference/api/sidePanel).
 
 ## Data storage
@@ -181,6 +190,8 @@ and [`sidePanel`](https://developer.chrome.com/docs/extensions/reference/api/sid
 
 The archive is local, does not sync between devices, and keeps up to 500 items.
 Persistent data remains subject to the browser's `chrome.storage.local` quota.
+All three storage areas are restricted to trusted extension contexts. Incognito
+mode is disabled, so private-window tabs and URLs are never added to Anchors.
 
 ## Localization
 
@@ -195,6 +206,7 @@ translation exists under `_locales`, and falls back to English otherwise.
 - `tab-state.js` — deterministic anchor-tab lifecycle transitions;
 - `workspace-state.js` — deterministic per-window Space and Today transitions;
 - `palette.js` — Command Palette search ranking;
+- `data-schema.js` — validation and limits for imports and synchronized data;
 - `shared.js` — persistent and session storage;
 - `sync.js` — GitHub Gist synchronization;
 - `tests/` — dependency-free lifecycle tests using Node's built-in test runner;
@@ -218,7 +230,7 @@ page.
 - A live anchor is bound to one browser tab globally. Selecting that same
   anchor from another window focuses its existing tab and window.
 - The automatic-archive age counter starts again after a browser restart.
-- Gist sync does not merge concurrent changes.
+- Gist conflicts are resolved as complete snapshots; there is no field-level merge.
 - Folders support one level of nesting.
 
 ## License

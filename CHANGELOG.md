@@ -2,6 +2,27 @@
 
 All notable changes to Anchors will be documented in this file.
 
+## [0.9.1] — 2026-07-19
+
+### Security
+
+- Restricted the extension's only host permission to `api.github.com`, removed
+  direct cookie access, and added a clear warning before site-data removal.
+- Disabled incognito access and restricted Chrome Storage to trusted extension
+  contexts so private tabs and extension state cannot cross those boundaries.
+- Added strict schemas, safe URL protocols, identifier rules, nesting limits,
+  and size/count caps for imports and encrypted synchronized snapshots.
+- Added encrypted revision ancestry and local content hashes. Concurrent device
+  edits now stop with an explicit whole-snapshot choice instead of silently
+  replacing one branch.
+
+### Fixed
+
+- Serialized all synchronization in the service worker and rechecked the
+  remote revision immediately before writing to reduce write races.
+- Rejected untrusted runtime senders and malformed tab-action messages.
+- Preserved note whitespace while validating synchronized data.
+
 ## [0.9.0] — 2026-07-19
 
 ### Added

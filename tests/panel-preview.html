@@ -26,9 +26,21 @@
       );
     const frame = document.querySelector('iframe');
     const requestedOverlay = new URLSearchParams(location.search).get('open');
-    if (requestedOverlay === 'palette') {
+    if (requestedOverlay) {
       frame.addEventListener('load', () => {
-        setTimeout(() => frame.contentDocument?.querySelector('#open-palette')?.click(), 50);
+        setTimeout(() => {
+          const doc = frame.contentDocument;
+          if (requestedOverlay === 'palette') doc?.querySelector('#open-palette')?.click();
+          if (requestedOverlay === 'clear') {
+            doc?.querySelector('.row.depth1 .btns button[aria-label="Actions"]')?.click();
+            setTimeout(() => [...(doc?.querySelectorAll('#menu button') || [])]
+              .find(button => button.textContent.includes('Clear cookies'))?.click(), 25);
+          }
+          if (requestedOverlay === 'conflict') {
+            doc?.querySelector('#open-settings')?.click();
+            setTimeout(() => doc?.querySelector('#sync-now')?.click(), 25);
+          }
+        }, 80);
       }, { once: true });
     }
     frame.srcdoc = prepared;
