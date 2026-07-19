@@ -8,19 +8,32 @@ metadata required to manage anchors: URLs, titles, favicons, and tab IDs.
 
 Anchors uses three Chrome Storage areas:
 
-- `chrome.storage.sync` stores spaces, anchors, folders, settings, and notes.
-  The browser may synchronize this data when the user enables browser sync.
-- `chrome.storage.local` stores the local archive and GitHub Gist configuration,
-  including the token.
+- `chrome.storage.local` stores spaces, anchors, folders, settings, notes, the
+  archive, and GitHub Gist configuration, including the token and sync
+  encryption key.
+- `chrome.storage.sync` stores no active Anchors data. Releases before encrypted
+  Gist sync used this area. During upgrade, Anchors first copies a newer legacy
+  snapshot to local storage and then removes its plaintext browser-sync keys.
 - `chrome.storage.session` stores temporary anchor-to-tab bindings, activity
   times, and tab age. This state is removed when the browser session ends.
 
+If another device running an older release writes legacy Anchors keys back to
+browser sync, the current release removes those keys without treating them as a
+new synchronization source. GitHub Gist is the only supported cross-device
+channel.
+
 ## GitHub Gist
 
-Gist sync is off by default and starts only after the user enters a token. When
-enabled, Anchors sends spaces, anchor URLs and titles, folders, notes, and
-settings to `api.github.com`. GitHub stores this data in a secret Gist named
-`anchors-sync.json`. The data is not end-to-end encrypted.
+Gist sync is off by default and requires both a GitHub token and a sync
+encryption key. Before leaving the device, spaces, anchor URLs and titles,
+folders, notes, settings, and update metadata are serialized and encrypted with
+AES-256-GCM. GitHub stores only the ciphertext envelope in a secret Gist named
+`anchors-sync.enc.json`.
+
+Anchors generates a fresh random 96-bit AES-GCM nonce for every write. The
+envelope also contains the format version, algorithm name, and a short key
+identifier. These fields do not contain sidebar data. Authenticated decryption
+must succeed before remote data is applied or replaced.
 
 The GitHub token:
 
@@ -28,6 +41,20 @@ The GitHub token:
 - is never written to `chrome.storage.sync`;
 - is never included in the Gist or an Anchors export;
 - is not encrypted by Anchors.
+
+The sync encryption key:
+
+- is generated from 256 bits of cryptographically secure randomness or entered
+  by the user on an additional device;
+- is stored as `syncConfig.encryptionKey` only in `chrome.storage.local`;
+- is never sent to GitHub or written to `chrome.storage.sync`;
+- is never included in a Gist or Anchors export;
+- is not additionally encrypted by Anchors on the local device.
+
+Anyone who gains access to the local browser profile while the extension is
+configured may be able to obtain the token and encryption key. Store a backup
+of the key in a password manager. Anchors and GitHub cannot recover encrypted
+sync data without it.
 
 Use a dedicated token with the minimum **Gists: Read and write** permission.
 Revoke it in GitHub after disabling sync if it is no longer needed.
@@ -59,10 +86,11 @@ automatically.
   leaves any open page as a regular Today tab; Anchors does not silently close
   a potentially important page.
 - The entire local archive can be cleared from the Archive section.
-- `⚙` → **Disable sync and forget the token** removes the local token. The Gist
-  remains in the GitHub account until it is deleted through GitHub.
-- Uninstalling the extension removes its local browser data. Copies already
-  stored by browser sync or GitHub are managed through those services.
+- `⚙` → **Disable sync and forget the token** removes the local token. The local
+  encryption key remains so sync can be reconnected later, and the Gist remains
+  in GitHub until it is deleted there.
+- Uninstalling the extension removes its local browser data. The encrypted Gist
+  remains in GitHub until it is deleted there.
 
 ## Manifest V3 permissions
 

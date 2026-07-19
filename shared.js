@@ -1,7 +1,70 @@
 // Shared storage layer for the panel and service worker.
-// Persistent data lives in chrome.storage.sync. Anchor lists are chunked because
-// sync storage has a per-key quota. Runtime anchor-to-tab bindings live in
-// chrome.storage.session because tab ids do not survive a browser restart.
+// Persistent sidebar data lives in chrome.storage.local. GitHub Gist is the only
+// cross-device channel; chrome.storage.sync is used only as a one-time migration
+// source for releases that stored plaintext there. Runtime anchor-to-tab
+// bindings live in chrome.storage.session because tab ids do not survive a
+// browser restart.
+
+const STORAGE_VERSION = 2;
+const STORAGE_VERSION_KEY = 'anchorsStorageVersion';
+const SYNCED_PREFIXES = ['anchors_', 'note_'];
+
+export function isPersistentKey(key) {
+  return key === 'meta' || key === 'updatedAt' || SYNCED_PREFIXES.some(prefix => key.startsWith(prefix));
+}
+
+function persistentSnapshot(all) {
+  return Object.fromEntries(Object.entries(all).filter(([key]) => isPersistentKey(key)));
+}
+
+// Copy the newest legacy browser-sync snapshot locally before removing its
+// plaintext cloud copy. Writes are ordered so a crash can leave a duplicate but
+// cannot leave Anchors without either the local or legacy snapshot.
+export async function migratePersistentStorage() {
+  const [local, legacy] = await Promise.all([
+    chrome.storage.local.get(null),
+    chrome.storage.sync.get(null)
+  ]);
+  const legacyKeys = Object.keys(legacy).filter(isPersistentKey);
+  let migrated = false;
+
+  if ((local[STORAGE_VERSION_KEY] || 0) < STORAGE_VERSION) {
+    const localState = persistentSnapshot(local);
+    const legacyState = persistentSnapshot(legacy);
+    const hasLocal = !!localState.meta;
+    const hasLegacy = !!legacyState.meta;
+    // Equality also selects legacy while the version marker is absent. That
+    // makes a retry finish stale-key cleanup after a crash that occurred just
+    // after copying the legacy snapshot locally.
+    const legacyIsAtLeastAsNew = (legacyState.updatedAt || 0) >= (localState.updatedAt || 0);
+
+    if (hasLegacy && (!hasLocal || legacyIsAtLeastAsNew)) {
+      const staleLocal = Object.keys(localState).filter(key => !(key in legacyState));
+      await chrome.storage.local.set(legacyState);
+      if (staleLocal.length) await chrome.storage.local.remove(staleLocal);
+      migrated = true;
+    }
+    await chrome.storage.local.set({ [STORAGE_VERSION_KEY]: STORAGE_VERSION });
+  }
+
+  // Also purge keys after an already-completed migration. This removes any
+  // plaintext state reintroduced by a device still running an older release.
+  if (legacyKeys.length) await chrome.storage.sync.remove(legacyKeys);
+  return { migrated, removedLegacyKeys: legacyKeys.length };
+}
+
+let storageMigration = null;
+export function ensureLocalStorage() {
+  if (!storageMigration) storageMigration = migratePersistentStorage();
+  return storageMigration;
+}
+
+export async function purgeLegacyBrowserSync() {
+  const legacy = await chrome.storage.sync.get(null);
+  const keys = Object.keys(legacy).filter(isPersistentKey);
+  if (keys.length) await chrome.storage.sync.remove(keys);
+  return keys.length;
+}
 
 export const PALETTE = ['#7c9cff', '#ff8a7c', '#7cd992', '#e8c46b', '#c78af0', '#6bd0e8', '#f08ab8'];
 
@@ -26,7 +89,8 @@ const SETTINGS_DEFAULTS = {
 };
 
 export async function loadMeta() {
-  const { meta } = await chrome.storage.sync.get('meta');
+  await ensureLocalStorage();
+  const { meta } = await chrome.storage.local.get('meta');
   if (meta) {
     meta.settings = Object.assign({}, SETTINGS_DEFAULTS, meta.settings || {});
     return meta;
@@ -38,26 +102,28 @@ export async function loadMeta() {
     settings: Object.assign({}, SETTINGS_DEFAULTS)
   };
   fresh.activeSpaceId = fresh.spaces[0].id;
-  await chrome.storage.sync.set({ meta: fresh });
+  await chrome.storage.local.set({ meta: fresh });
   return fresh;
 }
 
 // updatedAt is the last-write-wins marker used by Gist sync.
 async function touch() {
-  await chrome.storage.sync.set({ updatedAt: Date.now() });
+  await chrome.storage.local.set({ updatedAt: Date.now() });
 }
 
 export async function saveMeta(meta) {
-  await chrome.storage.sync.set({ meta });
+  await ensureLocalStorage();
+  await chrome.storage.local.set({ meta });
   await touch();
 }
 
-// Space anchors are stored as anchors_<id>__0, __1, ... chunks to stay below the
-// sync storage per-key quota.
+// Space anchors remain chunked as anchors_<id>__0, __1, ... for compatibility
+// with existing data and to keep individual writes small.
 const CHUNK_LIMIT = 6500;
 
 export async function loadAnchors(spaceId) {
-  const all = await chrome.storage.sync.get(null);
+  await ensureLocalStorage();
+  const all = await chrome.storage.local.get(null);
   const prefix = 'anchors_' + spaceId;
   if (Array.isArray(all[prefix])) return all[prefix]; // Legacy unchunked format.
   const chunkKeys = Object.keys(all)
@@ -69,6 +135,7 @@ export async function loadAnchors(spaceId) {
 }
 
 export async function saveAnchors(spaceId, anchors) {
+  await ensureLocalStorage();
   const prefix = 'anchors_' + spaceId;
   const chunks = [];
   let cur = [];
@@ -84,26 +151,28 @@ export async function saveAnchors(spaceId, anchors) {
   const payload = {};
   chunks.forEach((c, i) => { payload[prefix + '__' + i] = c; });
 
-  const all = await chrome.storage.sync.get(null);
+  const all = await chrome.storage.local.get(null);
   const stale = Object.keys(all)
     .filter(k => (k === prefix || k.startsWith(prefix + '__')) && !(k in payload));
-  await chrome.storage.sync.set(payload);
-  if (stale.length) await chrome.storage.sync.remove(stale);
+  await chrome.storage.local.set(payload);
+  if (stale.length) await chrome.storage.local.remove(stale);
   await touch();
 }
 
 export async function deleteAnchors(spaceId) {
-  const all = await chrome.storage.sync.get(null);
+  await ensureLocalStorage();
+  const all = await chrome.storage.local.get(null);
   const prefix = 'anchors_' + spaceId;
   const keys = Object.keys(all).filter(k => k === prefix || k.startsWith(prefix + '__'));
-  if (keys.length) await chrome.storage.sync.remove(keys);
+  if (keys.length) await chrome.storage.local.remove(keys);
   await touch();
 }
 
 // A list item is either an anchor or a folder {type:'folder', children:[anchors]}.
 // Return a flat list of every anchor for maintenance, shortcuts, and deduplication.
 export async function loadAllAnchors() {
-  const all = await chrome.storage.sync.get(null);
+  await ensureLocalStorage();
+  const all = await chrome.storage.local.get(null);
   const out = [];
   for (const [k, v] of Object.entries(all)) {
     if (!k.startsWith('anchors_') || !Array.isArray(v)) continue;
@@ -118,19 +187,21 @@ export async function loadAllAnchors() {
   return out;
 }
 
-// Space notes use one sync key and are truncated with headroom below the quota.
+// Space notes keep the previous length limit for predictable snapshot sizes.
 export async function loadNote(spaceId) {
+  await ensureLocalStorage();
   const k = 'note_' + spaceId;
-  const d = await chrome.storage.sync.get(k);
+  const d = await chrome.storage.local.get(k);
   return d[k] || '';
 }
 
 export async function saveNote(spaceId, text) {
+  await ensureLocalStorage();
   const k = 'note_' + spaceId;
   if (text && text.trim()) {
-    await chrome.storage.sync.set({ [k]: text.slice(0, 7000) });
+    await chrome.storage.local.set({ [k]: text.slice(0, 7000) });
   } else {
-    await chrome.storage.sync.remove(k);
+    await chrome.storage.local.remove(k);
   }
   await touch();
 }
@@ -138,8 +209,9 @@ export async function saveNote(spaceId, text) {
 // Delete anchor and note keys for spaces no longer present in meta, such as
 // orphans left by an interrupted import. Returns the number of removed keys.
 export async function cleanupOrphans(meta) {
+  await ensureLocalStorage();
   const valid = new Set(meta.spaces.map(s => s.id));
-  const all = await chrome.storage.sync.get(null);
+  const all = await chrome.storage.local.get(null);
   const stale = [];
   for (const k of Object.keys(all)) {
     let id = null;
@@ -149,7 +221,7 @@ export async function cleanupOrphans(meta) {
     if (!valid.has(id)) stale.push(k);
   }
   if (stale.length) {
-    await chrome.storage.sync.remove(stale);
+    await chrome.storage.local.remove(stale);
     await touch();
   }
   return stale.length;

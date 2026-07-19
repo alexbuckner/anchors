@@ -1,6 +1,7 @@
 import {
   loadMeta, loadAllAnchors, normalizeUrl,
-  getBindings, setBindings, getLastActive, setLastActive
+  getBindings, setBindings, getLastActive, setLastActive,
+  ensureLocalStorage, isPersistentKey, purgeLegacyBrowserSync
 } from './shared.js';
 import {
   assignAnchorTab, pruneTabState, releaseAnchors,
@@ -47,15 +48,22 @@ chrome.runtime.onStartup.addListener(() => {
 // Debounce Gist pushes so a burst of local edits produces one remote update.
 // Anchor or settings changes also trigger a defensive runtime-state repair.
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== 'sync') return;
+  if (area === 'sync') {
+    purgeLegacyBrowserSync().catch(() => {});
+    return;
+  }
+  if (area !== 'local' || !Object.keys(changes).some(isPersistentKey)) return;
   chrome.alarms.create('gistPush', { delayInMinutes: 0.5 });
-  // Browser sync can deliver related keys independently and out of order.
-  // Recreate the one-shot alarm on every relevant change so repair runs after
-  // a quiet window, including when a late anchor chunk follows updatedAt.
+  // Persistent writes can touch metadata, chunks, and the commit marker in
+  // separate operations. Recreate the one-shot alarm until the batch is quiet.
   if (changes.meta || changes.updatedAt || Object.keys(changes).some(key => key.startsWith('anchors_'))) {
     chrome.alarms.create('stateRepair', { delayInMinutes: 0.1 });
   }
 });
+
+// Upgrade legacy plaintext browser-sync data as soon as the worker wakes, even
+// if the side panel has not been opened yet.
+ensureLocalStorage().catch(() => {});
 
 // ---------- runtime tab state ----------
 

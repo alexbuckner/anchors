@@ -2,9 +2,13 @@ import {
   PALETTE, normalizeUrl,
   loadMeta, saveMeta, loadAnchors, saveAnchors, deleteAnchors, cleanupOrphans,
   loadNote, saveNote,
-  getBindings
+  getBindings, isPersistentKey, purgeLegacyBrowserSync
 } from './shared.js';
-import { syncNow, getSyncConfig, setSyncConfig } from './sync.js';
+import {
+  syncNow, migratePlaintextGist,
+  getSyncConfig, setSyncConfig,
+  generateSyncKey, normalizeSyncKey
+} from './sync.js';
 
 let meta = null;
 let anchors = [];   // Items are anchors {id,url,title} or folders {id,type:'folder',name,collapsed,children:[]}.
@@ -786,9 +790,10 @@ async function renderArchive() {
 // Footer sync status chip.
 async function updateSyncStatus() {
   const cfg = await getSyncConfig();
+  const ready = !!cfg.token && !!cfg.encryptionKey;
   const chip = $('#sync-status');
-  chip.classList.toggle('on', !!cfg.token);
-  $('#sync-status-label').textContent = cfg.token
+  chip.classList.toggle('on', ready);
+  $('#sync-status-label').textContent = ready
     ? (cfg.lastSyncAt
       ? t('syncedShort', new Date(cfg.lastSyncAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
       : t('syncEnabledStatus'))
@@ -1260,21 +1265,47 @@ const SYNC_STATUS_TEXT = {
   linked: t('syncStatusLinked'),
   pulled: t('syncStatusPulled'),
   pushed: t('syncStatusPushed'),
-  uptodate: t('syncStatusUptodate')
+  uptodate: t('syncStatusUptodate'),
+  migrated: t('syncStatusMigrated')
 };
+
+async function reloadSyncedState() {
+  meta = await loadMeta();
+  anchors = await loadAnchors(activeSpace().id);
+  await loadNoteUI();
+  render();
+}
+
+async function runPlaintextMigration() {
+  try {
+    const r = await migratePlaintextGist();
+    if (r.pulled) await reloadSyncedState();
+    toast(t(r.legacyDeleted ? 'syncStatusMigrated' : 'syncStatusMigratedLegacyRetained'));
+  } catch (e) {
+    toast(t('syncErrorToast', e.message));
+  }
+  await updateSettingsUI();
+  await updateSyncStatus();
+}
 
 async function runSync() {
   try {
     const r = await syncNow();
     toast(SYNC_STATUS_TEXT[r.status] || r.status);
     if (r.status === 'pulled' || r.status === 'linked') {
-      meta = await loadMeta();
-      anchors = await loadAnchors(activeSpace().id);
-      await loadNoteUI();
-      render();
+      await reloadSyncedState();
     }
   } catch (e) {
-    toast(t('syncErrorToast', e.message));
+    if (e.code === 'PLAINTEXT_GIST') {
+      showDialog({
+        title: t('migratePlaintextGistDialog'),
+        okText: t('migrateButton'),
+        danger: true,
+        onOk: runPlaintextMigration
+      });
+    } else {
+      toast(t('syncErrorToast', e.message));
+    }
   }
   await updateSettingsUI();
   await updateSyncStatus();
@@ -1284,15 +1315,20 @@ async function runSync() {
 
 async function updateSettingsUI() {
   const cfg = await getSyncConfig();
+  const ready = !!cfg.token && !!cfg.encryptionKey;
   const line = $('#sync-status-line');
-  line.classList.toggle('on', !!cfg.token);
-  $('#sync-status-text').textContent = cfg.token
+  line.classList.toggle('on', ready);
+  $('#sync-status-text').textContent = ready
     ? (cfg.lastSyncAt
       ? t('syncEnabledLastStatus', new Date(cfg.lastSyncAt).toLocaleTimeString())
       : t('syncEnabledStatus'))
-    : t('syncDisabledStatus');
+    : (cfg.token ? t('syncEncryptionKeyRequiredStatus') : t('syncDisabledStatus'));
   $('#sync-token .label').textContent = cfg.token ? t('replaceGitHubTokenAction') : t('connectGitHubAction');
-  $('#sync-now').disabled = !cfg.token;
+  $('#sync-key .label').textContent = cfg.encryptionKey
+    ? t('copyEncryptionKeyAction')
+    : t('generateEncryptionKeyAction');
+  $('#sync-key-import .label').textContent = t('useExistingEncryptionKeyAction');
+  $('#sync-now').disabled = !ready;
   $('#sync-disable').disabled = !cfg.token;
   $('#keep-anchor-tabs-toggle').setAttribute('aria-checked', String(!!meta.settings.keepAnchorTabs));
   $('#dedup-toggle').setAttribute('aria-checked', String(!!meta.settings.dedup));
@@ -1414,14 +1450,52 @@ async function init() {
       title: t('githubTokenDialog'), withInput: true, inputType: 'password', okText: t('saveButton'),
       onOk: async (token) => {
         await setSyncConfig({ ...cfg, token });
-        runSync();
+        if (cfg.encryptionKey) runSync();
+        else {
+          toast(t('syncEncryptionKeyRequiredToast'));
+          await updateSettingsUI();
+          await updateSyncStatus();
+        }
+      }
+    });
+  };
+  $('#sync-key').onclick = async () => {
+    const cfg = await getSyncConfig();
+    const encryptionKey = cfg.encryptionKey || generateSyncKey();
+    if (!cfg.encryptionKey) await setSyncConfig({ ...cfg, encryptionKey, lastSyncAt: 0 });
+    try {
+      await navigator.clipboard.writeText(encryptionKey);
+      toast(t(cfg.encryptionKey ? 'encryptionKeyCopiedToast' : 'encryptionKeyGeneratedToast'));
+    } catch (e) {
+      showDialog({
+        title: t('copyEncryptionKeyDialog'), withInput: true, initial: encryptionKey,
+        okText: t('doneButton'), onOk: () => {}
+      });
+    }
+    await updateSettingsUI();
+    await updateSyncStatus();
+  };
+  $('#sync-key-import').onclick = async () => {
+    const cfg = await getSyncConfig();
+    showDialog({
+      title: t('encryptionKeyDialog'), withInput: true, inputType: 'password', okText: t('saveButton'),
+      onOk: async (value) => {
+        try {
+          const encryptionKey = normalizeSyncKey(value);
+          await setSyncConfig({ ...cfg, encryptionKey, lastSyncAt: 0 });
+          toast(t('encryptionKeySavedToast'));
+          await updateSettingsUI();
+          await updateSyncStatus();
+        } catch (e) {
+          toast(t('syncErrorToast', e.message));
+        }
       }
     });
   };
   $('#sync-now').onclick = () => runSync();
   $('#sync-disable').onclick = async () => {
     const cfg = await getSyncConfig();
-    await setSyncConfig({ token: '', gistId: cfg.gistId, lastSyncAt: 0 });
+    await setSyncConfig({ ...cfg, token: '', lastSyncAt: 0 });
     toast(t('syncDisabledToast'));
     await updateSettingsUI();
     await updateSyncStatus();
@@ -1454,19 +1528,20 @@ async function init() {
         updateSyncStatus();
         if (findOverlay('settings')) updateSettingsUI();
       }
+      if (importing || !Object.keys(changes).some(isPersistentKey)) return;
+      meta = await loadMeta();
+      anchors = await loadAnchors(activeSpace().id);
+      scheduleRender();
       return;
     }
-    if (area !== 'sync' || importing) return;
-    meta = await loadMeta();
-    anchors = await loadAnchors(activeSpace().id);
-    scheduleRender();
+    if (area === 'sync') purgeLegacyBrowserSync().catch(() => {});
   });
 
   render();
 
   // Pull any changes made on another device when the panel opens.
   const cfg = await getSyncConfig();
-  if (cfg.token) {
+  if (cfg.token && cfg.encryptionKey) {
     syncNow().then(r => {
       if (r.status === 'pulled' || r.status === 'linked') {
         toast(SYNC_STATUS_TEXT[r.status]);

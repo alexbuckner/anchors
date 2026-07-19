@@ -202,13 +202,13 @@ function setFixture({ keepAnchorTabs = false, restored = [] } = {}) {
   createCount = 0;
   focusedWindowId = 1;
   windows.set(1, { id: 1, type: 'normal', focused: true });
-  syncState.meta = {
+  localState.meta = {
     version: 1,
     spaces: [{ id: 'space', name: 'Work', color: '#7c9cff' }],
     activeSpaceId: 'space',
     settings: { autoResetHours: 6, suspendMinutes: 0, archiveHours: 0, keepAnchorTabs, dedup: true }
   };
-  syncState['anchors_space__0'] = [
+  localState['anchors_space__0'] = [
     { id: 'a', url: 'https://a.test/', title: 'A' },
     { id: 'b', url: 'https://b.test/', title: 'B' },
     { id: 'c', url: 'https://c.test/', title: 'C' }
@@ -285,7 +285,7 @@ test('rapid A B C commands are serialized and the last click wins', async () => 
 });
 
 test('keep-open mode preserves a separate tab for each anchor', async () => {
-  syncState.meta.settings.keepAnchorTabs = true;
+  localState.meta.settings.keepAnchorTabs = true;
   const first = await send('open', { anchorId: 'a', windowId: 1 });
   const second = await send('open', { anchorId: 'b', windowId: 1 });
   await drain();

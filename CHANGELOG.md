@@ -2,6 +2,22 @@
 
 All notable changes to Anchors will be documented in this file.
 
+## [0.8.0] — 2026-07-19
+
+### Changed
+
+- End-to-end encrypted GitHub Gist snapshots with AES-256-GCM and a local
+  recovery key that can be copied to another device.
+- Added explicit, fail-closed migration from legacy plaintext Gists: Anchors
+  creates and activates an encrypted replacement before deleting the old Gist.
+- Refused to overwrite invalid, unsupported, or differently encrypted remote
+  data.
+- Moved spaces, anchors, settings, and notes from `chrome.storage.sync` to
+  `chrome.storage.local`, making the encrypted Gist the only cross-device
+  channel.
+- Added a local-first upgrade migration that preserves the newer snapshot and
+  removes legacy plaintext browser-sync keys after the local copy is safe.
+
 ## [0.7.1] — 2026-07-15
 
 ### Changed

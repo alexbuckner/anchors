@@ -6,7 +6,7 @@ side panel: every anchor has a saved home URL, while regular tabs stay in a
 separate Today section. By default, anchors reuse one live browser tab per
 window instead of filling the native tab strip.
 
-Current version: **0.7.1**.
+Current version: **0.8.0**.
 
 ![Anchors main panel](docs/screenshots/panel-overview.png)
 
@@ -37,8 +37,8 @@ _The screenshots use fictional demo data._
   with the current page, or clear site data for that origin.
 - **Import and export.** Import Arc `StorableSidebar.json` files or Anchors JSON
   exports.
-- **Sync.** Sync spaces, anchors, settings, and notes through browser sync and
-  an optional GitHub Gist.
+- **Encrypted sync.** Sync spaces, anchors, settings, and notes through an
+  end-to-end encrypted GitHub Gist.
 
 ### Tab lifecycle
 
@@ -91,30 +91,49 @@ Anchors imports non-empty spaces and their pinned items. Nested folders are
 flattened to one level. Arc browsing history and unpinned tabs are not imported.
 
 An Anchors export contains spaces, anchors, folders, and notes. It does not
-contain the local archive or GitHub token.
+contain the local archive, GitHub token, or sync encryption key.
 
 ## GitHub Gist sync
 
-Browser sync depends on the sync settings of the browser itself. An additional
-Gist channel is useful for Vivaldi or for syncing across different Chromium
-browsers:
+Anchors deliberately keeps sidebar data out of browser sync. An encrypted Gist
+provides one consistent cross-device channel for Chrome, Edge, Brave, and
+Vivaldi:
 
 1. Create a GitHub Personal Access Token with the minimum Gist access: a
    fine-grained token with **Gists: Read and write**, or a classic token with
    only the `gist` scope.
 2. Open `⚙` → **Connect GitHub** and enter the token.
-3. Anchors creates a secret Gist containing `anchors-sync.json`, or discovers an
-   existing Gist with that filename.
+3. Select **Generate encryption key**, then save the copied recovery key in a
+   password manager.
+4. Select **Sync now**. Anchors creates a secret Gist containing
+   `anchors-sync.enc.json`, or discovers an existing encrypted Anchors Gist.
+
+On another device, connect a GitHub token for the same account, select
+**Use existing encryption key**, paste the recovery key, and then sync. A
+separate minimum-scope token per device makes individual revocation possible.
 
 Anchors schedules a push about 30 seconds after a local edit and checks for
 remote updates about every 5 minutes. Sync uses last-write-wins without merging:
 simultaneous edits on two devices can cause the later complete snapshot to
 replace the earlier one.
 
-The GitHub token is stored only in `chrome.storage.local`. It is never written
-to browser sync, the Gist, or an Anchors export, and it is not encrypted by the
-extension. Gist data is not end-to-end encrypted either. Use a minimum-scope
-token and revoke it in GitHub when it is no longer needed.
+Gist snapshots are end-to-end encrypted with AES-256-GCM using a fresh random
+nonce for every write. GitHub receives an envelope containing ciphertext and
+non-secret format metadata; it does not receive the key. An incorrect key
+fails authenticated decryption before Anchors can overwrite remote data.
+
+The GitHub token and encryption key are stored only in `chrome.storage.local`.
+They are never written to browser sync, the Gist, or an Anchors export, and the
+extension does not additionally encrypt them on the local device. Use a
+minimum-scope token and revoke it in GitHub when it is no longer needed. Keep
+the encryption key in a password manager: without it, an encrypted Gist cannot
+be recovered on a new device.
+
+Older `anchors-sync.json` Gists contain plaintext. Anchors never silently
+overwrites one. After confirmation, it selects the newer local or remote
+snapshot, creates a new encrypted Gist, switches sync to it, and only then
+deletes the old plaintext Gist. If deletion fails, Anchors leaves encrypted
+sync active and reports that the old Gist still needs manual removal.
 
 See the [official GitHub Gists API documentation](https://docs.github.com/en/rest/gists/gists).
 
@@ -140,15 +159,17 @@ and [`sidePanel`](https://developer.chrome.com/docs/extensions/reference/api/sid
 
 ## Data storage
 
-- `chrome.storage.sync`: space metadata, settings, anchors, folders, notes, and
-  the last-update marker. Large anchor lists are split into chunks.
-- `chrome.storage.local`: the archive and Gist configuration, including the
-  token.
+- `chrome.storage.local`: space metadata, settings, anchors, folders, notes,
+  the archive, and Gist configuration, including the token and encryption key.
+  Large anchor lists remain split into chunks.
+- `chrome.storage.sync`: no active application data. On upgrade, Anchors copies
+  a newer legacy plaintext snapshot to local storage and then removes the old
+  browser-sync keys.
 - `chrome.storage.session`: current tab IDs, anchor activity times, and the age
   of regular tabs. This state resets when the browser session ends.
 
 The archive is local, does not sync between devices, and keeps up to 500 items.
-Browser sync remains subject to `chrome.storage.sync` quotas.
+Persistent data remains subject to the browser's `chrome.storage.local` quota.
 
 ## Localization
 

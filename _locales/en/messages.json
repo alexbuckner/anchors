@@ -308,6 +308,12 @@
   "syncStatusUptodate": {
     "message": "Everything is up to date"
   },
+  "syncStatusMigrated": {
+    "message": "Moved sync to a new encrypted Gist and deleted the plaintext Gist"
+  },
+  "syncStatusMigratedLegacyRetained": {
+    "message": "Encrypted sync is active, but the old plaintext Gist could not be deleted"
+  },
   "syncErrorToast": {
     "message": "Sync failed: $ERROR$",
     "placeholders": {
@@ -326,6 +332,9 @@
   "syncDisabledStatus": {
     "message": "Sync disabled"
   },
+  "syncEncryptionKeyRequiredStatus": {
+    "message": "Encryption key required"
+  },
   "syncOffShort": {
     "message": "Sync off"
   },
@@ -343,6 +352,48 @@
   },
   "githubTokenDialog": {
     "message": "GitHub token (Gists: read and write only)"
+  },
+  "generateEncryptionKeyAction": {
+    "message": "Generate encryption key"
+  },
+  "copyEncryptionKeyAction": {
+    "message": "Copy encryption key"
+  },
+  "useExistingEncryptionKeyAction": {
+    "message": "Use existing encryption key"
+  },
+  "encryptionKeyLocalHint": {
+    "message": "Stored only on this device"
+  },
+  "encryptionKeyImportHint": {
+    "message": "Paste the same key on another device"
+  },
+  "encryptionKeyDialog": {
+    "message": "Paste an Anchors sync encryption key"
+  },
+  "copyEncryptionKeyDialog": {
+    "message": "Copy this key and keep it in your password manager"
+  },
+  "encryptionKeyGeneratedToast": {
+    "message": "Encryption key generated and copied"
+  },
+  "encryptionKeyCopiedToast": {
+    "message": "Encryption key copied"
+  },
+  "encryptionKeySavedToast": {
+    "message": "Encryption key saved on this device"
+  },
+  "syncEncryptionKeyRequiredToast": {
+    "message": "Generate or paste an encryption key before syncing"
+  },
+  "migratePlaintextGistDialog": {
+    "message": "Existing sync data is not encrypted. Move the newest snapshot to a new encrypted Gist and delete the old plaintext Gist?"
+  },
+  "migrateButton": {
+    "message": "Migrate"
+  },
+  "doneButton": {
+    "message": "Done"
   },
   "syncNowAction": {
     "message": "Sync now"
