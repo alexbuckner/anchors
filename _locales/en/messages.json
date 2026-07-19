@@ -155,6 +155,9 @@
       "error": { "content": "$1" }
     }
   },
+  "extensionReloadingToast": {
+    "message": "Finishing the Anchors update…"
+  },
   "returnHomeTitle": {
     "message": "Return to the saved home page"
   },

@@ -19,6 +19,7 @@ try {
 }
 
 const TAB_MESSAGE_SCOPE = 'anchors-tab-state';
+const RUNTIME_PROTOCOL_VERSION = 2;
 const isWebUrl = (u) => typeof u === 'string' && (u.startsWith('http://') || u.startsWith('https://'));
 
 // The service worker is the sole writer of runtime tab state. Serializing every
@@ -438,6 +439,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || message.scope !== TAB_MESSAGE_SCOPE) return undefined;
 
   const handlers = {
+    handshake: async () => ({ protocolVersion: RUNTIME_PROTOCOL_VERSION }),
     open: () => openAnchor(message.anchorId, message.windowId),
     bind: () => bindAnchor(message.anchorId, message.tabId),
     goHome: () => goHome(message.anchorId, message.windowId),
@@ -450,7 +452,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     },
     repair: async () => {
       const ctx = await prepareRuntime({ reconcileSingle: true });
-      return { bindingCount: Object.keys(ctx.bindings).length };
+      return {
+        bindingCount: Object.keys(ctx.bindings).length,
+        protocolVersion: RUNTIME_PROTOCOL_VERSION
+      };
     }
   };
   const handler = handlers[message.action];

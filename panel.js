@@ -23,6 +23,7 @@ let settingsOpening = false;
 
 const $ = (sel) => document.querySelector(sel);
 const SVG_NS = 'http://www.w3.org/2000/svg';
+const RUNTIME_PROTOCOL_VERSION = 2;
 
 function t(key, substitutions) {
   return chrome.i18n.getMessage(key, substitutions) || key;
@@ -1361,6 +1362,20 @@ async function openSettings() {
 
 async function init() {
   applyI18n();
+  // An unpacked extension can serve a freshly edited panel while Vivaldi keeps
+  // the previously registered service worker alive. Do not migrate storage or
+  // accept tab commands across that mixed-version boundary: reload the entire
+  // extension first so the panel and worker agree on their storage backend.
+  const runtimeState = await chrome.runtime.sendMessage({
+    scope: 'anchors-tab-state',
+    action: 'handshake',
+    protocolVersion: RUNTIME_PROTOCOL_VERSION
+  }).catch(() => null);
+  if (runtimeState && runtimeState.protocolVersion !== RUNTIME_PROTOCOL_VERSION) {
+    toast(t('extensionReloadingToast'));
+    setTimeout(() => chrome.runtime.reload(), 250);
+    return;
+  }
   meta = await loadMeta();
   await cleanupOrphans(meta).catch(() => {});
   await tabState('repair').catch(() => {});

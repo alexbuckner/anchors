@@ -249,8 +249,13 @@ beforeEach(async () => {
 test('Vivaldi-like partial sidePanel API still registers and answers tab messages', async () => {
   assert.equal(events.onMessage.listeners.length, 1);
 
+  const handshake = await send('handshake');
+  assert.equal(handshake.ok, true);
+  assert.equal(handshake.protocolVersion, 2);
+
   const repaired = await send('repair');
   assert.equal(repaired.ok, true);
+  assert.equal(repaired.protocolVersion, 2);
 
   const opened = await send('open', { anchorId: 'a', windowId: 1 });
   assert.equal(typeof opened.tabId, 'number');

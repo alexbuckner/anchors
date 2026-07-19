@@ -2,6 +2,16 @@
 
 All notable changes to Anchors will be documented in this file.
 
+## [0.8.1] — 2026-07-19
+
+### Fixed
+
+- Detect a stale service worker when an unpacked extension starts serving a
+  newer panel, then reload the complete extension before storage migration or
+  tab actions can cross incompatible versions.
+- Prevent the resulting `Anchor not found` errors after upgrading from the
+  browser-sync storage backend used by v0.7.1.
+
 ## [0.8.0] — 2026-07-19
 
 ### Changed

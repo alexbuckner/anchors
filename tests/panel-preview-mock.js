@@ -79,9 +79,10 @@
   window.chrome = {
     i18n: { getMessage: translate },
     runtime: {
-      getManifest: () => ({ version: '0.8.0' }),
+      getManifest: () => ({ version: '0.8.1' }),
       getURL: path => new URL(path.replace(/^\//, ''), window.parent.location.origin + '/').href,
-      sendMessage: async () => ({ ok: true, bindingCount: 2 })
+      sendMessage: async () => ({ ok: true, bindingCount: 2, protocolVersion: 2 }),
+      reload: () => {}
     },
     storage: {
       sync: area(stores.sync),
