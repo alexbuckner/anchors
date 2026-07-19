@@ -10,6 +10,10 @@
       { id: 'work', name: 'Work', color: '#ff8a7c', icon: 'icon:work' },
       { id: 'travel', name: 'Travel', color: '#7cd992', icon: 'icon:travel' }
     ],
+    favorites: [
+      { id: 'calendar', url: 'https://calendar.google.com', title: 'Calendar' },
+      { id: 'mail', url: 'https://mail.google.com', title: 'Gmail' }
+    ],
     activeSpaceId: 'work',
     settings: {
       autoResetHours: 6,
@@ -45,7 +49,13 @@
       note_work: 'Ship the next focused release.'
     },
     local: { archive: [], syncConfig: { token: '', gistId: '', lastSyncAt: 0 } },
-    session: { bindings: { github: 1, chatgpt: 2 }, lastActive: { github: Date.now(), chatgpt: Date.now() } }
+    session: {
+      bindings: { github: 1, chatgpt: 2 },
+      lastActive: { github: Date.now(), chatgpt: Date.now() },
+      tabSpaces: { 3: 'work' },
+      activeSpaces: { 1: 'work' },
+      spaceLastTabs: { 1: { work: 3 } }
+    }
   };
 
   function area(store) {
@@ -79,9 +89,18 @@
   window.chrome = {
     i18n: { getMessage: translate },
     runtime: {
-      getManifest: () => ({ version: '0.8.2' }),
+      getManifest: () => ({ version: '0.9.0' }),
       getURL: path => new URL(path.replace(/^\//, ''), window.parent.location.origin + '/').href,
-      sendMessage: async () => ({ ok: true, bindingCount: 2, protocolVersion: 2 }),
+      sendMessage: async message => {
+        if (message.action === 'spaceState') {
+          return { ok: true, activeSpaceId: stores.session.activeSpaces[1], tabSpaces: clone(stores.session.tabSpaces) };
+        }
+        if (message.action === 'activateSpace') {
+          stores.session.activeSpaces[message.windowId] = message.spaceId;
+          return { ok: true, activeSpaceId: message.spaceId, tabId: null };
+        }
+        return { ok: true, bindingCount: 2, protocolVersion: 3 };
+      },
       reload: () => {}
     },
     storage: {

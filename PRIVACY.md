@@ -8,14 +8,18 @@ metadata required to manage anchors: URLs, titles, favicons, and tab IDs.
 
 Anchors uses three Chrome Storage areas:
 
-- `chrome.storage.local` stores spaces, anchors, folders, settings, notes, the
-  archive, and GitHub Gist configuration, including the token and sync
+- `chrome.storage.local` stores Favorites, spaces, anchors, folders, settings,
+  notes, the archive, and GitHub Gist configuration, including the token and sync
   encryption key.
 - `chrome.storage.sync` stores no active Anchors data. Releases before encrypted
   Gist sync used this area. During upgrade, Anchors first copies a newer legacy
   snapshot to local storage and then removes its plaintext browser-sync keys.
-- `chrome.storage.session` stores temporary anchor-to-tab bindings, activity
-  times, and tab age. This state is removed when the browser session ends.
+- `chrome.storage.session` stores per-window active Spaces, temporary
+  anchor-to-tab bindings, Today-to-Space assignments, activity times, and tab
+  age. This state is removed when the browser session ends.
+- Chromium's `sessions` API stores only a Space ID on an open Today tab so its
+  local assignment can be recovered after session restore. It is not sent to
+  Gist or another device.
 
 If another device running an older release writes legacy Anchors keys back to
 browser sync, the current release removes those keys without treating them as a
@@ -25,8 +29,8 @@ channel.
 ## GitHub Gist
 
 Gist sync is off by default and requires both a GitHub token and a sync
-encryption key. Before leaving the device, spaces, anchor URLs and titles,
-folders, notes, settings, and update metadata are serialized and encrypted with
+encryption key. Before leaving the device, Favorites, spaces, anchor URLs and
+titles, folders, notes, settings, and update metadata are serialized and encrypted with
 AES-256-GCM. GitHub stores only the ciphertext envelope in a secret Gist named
 `anchors-sync.enc.json`.
 
@@ -98,6 +102,7 @@ automatically.
 | --- | --- |
 | `tabs` | Display and manage tabs and bind them to anchors. |
 | `storage` | Store synchronized, local, and session state. |
+| `sessions` | Restore the local Space assignment of an open Today tab. |
 | `alarms` | Run periodic tab maintenance and Gist sync. |
 | `favicon` | Load favicons through Chromium. |
 | `sidePanel` | Display the side-panel interface. |

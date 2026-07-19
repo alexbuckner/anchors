@@ -40,11 +40,11 @@ test('manifest, package, and README versions agree', async () => {
     read('package.json').then(JSON.parse),
     read('README.md')
   ]);
-  assert.equal(manifest.version, '0.8.2');
+  assert.equal(manifest.version, '0.9.0');
   assert.equal(pkg.version, manifest.version);
   assert.match(readme, new RegExp(`Current version: \\*\\*${manifest.version.replaceAll('.', '\\.')}\\*\\*\\.`));
   assert.deepEqual(manifest.permissions, [
-    'tabs', 'storage', 'alarms', 'favicon', 'sidePanel', 'browsingData', 'cookies'
+    'tabs', 'storage', 'sessions', 'alarms', 'favicon', 'sidePanel', 'browsingData', 'cookies'
   ]);
   assert.deepEqual(manifest.host_permissions, ['<all_urls>']);
 });

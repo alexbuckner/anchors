@@ -87,17 +87,23 @@ const SETTINGS_DEFAULTS = {
   keepAnchorTabs: false,
   dedup: true
 };
+const FAVORITES_LIMIT = 12;
 
 export async function loadMeta() {
   await ensureLocalStorage();
   const { meta } = await chrome.storage.local.get('meta');
   if (meta) {
     meta.settings = Object.assign({}, SETTINGS_DEFAULTS, meta.settings || {});
+    meta.favorites = Array.isArray(meta.favorites) ? meta.favorites.slice(0, FAVORITES_LIMIT) : [];
+    if (!meta.spaces.some(space => space.id === meta.activeSpaceId)) {
+      meta.activeSpaceId = meta.spaces[0]?.id || null;
+    }
     return meta;
   }
   const fresh = {
     version: 1,
     spaces: [{ id: crypto.randomUUID(), name: chrome.i18n.getMessage('defaultSpaceName') || 'Personal', color: PALETTE[0] }],
+    favorites: [],
     activeSpaceId: null,
     settings: Object.assign({}, SETTINGS_DEFAULTS)
   };
@@ -176,13 +182,17 @@ export async function loadAllAnchors() {
   const out = [];
   for (const [k, v] of Object.entries(all)) {
     if (!k.startsWith('anchors_') || !Array.isArray(v)) continue;
+    const spaceId = k.slice('anchors_'.length).split('__')[0];
     for (const item of v) {
       if (item && item.type === 'folder') {
-        for (const c of (item.children || [])) out.push(c);
+        for (const c of (item.children || [])) out.push({ ...c, spaceId });
       } else if (item) {
-        out.push(item);
+        out.push({ ...item, spaceId });
       }
     }
+  }
+  for (const favorite of (all.meta?.favorites || []).slice(0, FAVORITES_LIMIT)) {
+    if (favorite) out.push({ ...favorite, spaceId: null, favorite: true });
   }
   return out;
 }
@@ -243,4 +253,23 @@ export async function getLastActive() {
 
 export async function setLastActive(la) {
   await chrome.storage.session.set({ lastActive: la });
+}
+
+export async function getWorkspaceState() {
+  const { tabSpaces, activeSpaces, spaceLastTabs } = await chrome.storage.session.get([
+    'tabSpaces', 'activeSpaces', 'spaceLastTabs'
+  ]);
+  return {
+    tabSpaces: tabSpaces || {},
+    activeSpaces: activeSpaces || {},
+    lastTabs: spaceLastTabs || {}
+  };
+}
+
+export async function setWorkspaceState(state) {
+  await chrome.storage.session.set({
+    tabSpaces: state.tabSpaces || {},
+    activeSpaces: state.activeSpaces || {},
+    spaceLastTabs: state.lastTabs || {}
+  });
 }

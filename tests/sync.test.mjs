@@ -91,7 +91,11 @@ globalThis.fetch = async (url, options = {}) => {
 function state(updatedAt, url = 'https://example.test/') {
   return {
     updatedAt,
-    meta: { spaces: [{ id: 'space', name: 'Work' }], activeSpaceId: 'space' },
+    meta: {
+      spaces: [{ id: 'space', name: 'Work' }],
+      favorites: [{ id: 'favorite', url: 'https://favorite.internal.test/', title: 'Private favorite' }],
+      activeSpaceId: 'space'
+    },
     data: { anchors_space__0: [{ id: 'anchor', url, title: 'Private title' }] }
   };
 }
@@ -121,7 +125,7 @@ test('AES-GCM envelope round-trips without exposing sync contents', async () => 
 
   assert.equal(envelope.algorithm, 'AES-256-GCM');
   assert.equal(envelope.version, 2);
-  assert.doesNotMatch(JSON.stringify(envelope), /internal|customer|Private title/);
+  assert.doesNotMatch(JSON.stringify(envelope), /internal|customer|Private title|Private favorite/);
   assert.deepEqual(await decryptSyncState(envelope, key), plaintext);
 
   await assert.rejects(

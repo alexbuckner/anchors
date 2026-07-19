@@ -14,6 +14,27 @@
   "newSpaceTitle": {
     "message": "New space"
   },
+  "favoritesLabel": {
+    "message": "Favorites"
+  },
+  "commandPaletteTitle": {
+    "message": "Search tabs and commands"
+  },
+  "commandPalettePlaceholder": {
+    "message": "Search tabs and commands"
+  },
+  "commandPaletteResults": {
+    "message": "Command Palette results"
+  },
+  "commandPaletteNavigateHint": {
+    "message": "navigate"
+  },
+  "commandPaletteOpenHint": {
+    "message": "open"
+  },
+  "commandPaletteNoResults": {
+    "message": "No matching tabs or commands"
+  },
   "newFolderTitle": {
     "message": "New folder"
   },
@@ -191,6 +212,27 @@
   "pinCurrentHereAction": {
     "message": "Pin the current tab here"
   },
+  "favoriteCurrentTabAction": {
+    "message": "Add to Favorites"
+  },
+  "moveToFavoritesAction": {
+    "message": "Move to Favorites"
+  },
+  "moveToSpaceAction": {
+    "message": "Move to $SPACE$",
+    "placeholders": {
+      "space": { "content": "$1" }
+    }
+  },
+  "removeFavoriteAction": {
+    "message": "Remove from Favorites"
+  },
+  "favoritesFullToast": {
+    "message": "Favorites can contain up to 12 tabs"
+  },
+  "alreadyFavoriteToast": {
+    "message": "This page is already in Favorites"
+  },
   "folderNameDialog": {
     "message": "Folder name"
   },
@@ -229,6 +271,30 @@
   },
   "noMatchesHint": {
     "message": "No matches"
+  },
+  "paletteActionDetail": {
+    "message": "Action"
+  },
+  "paletteSpaceDetail": {
+    "message": "Space"
+  },
+  "paletteFavoriteDetail": {
+    "message": "Favorite"
+  },
+  "paletteAnchorDetail": {
+    "message": "$SPACE$ — Anchor",
+    "placeholders": {
+      "space": { "content": "$1" }
+    }
+  },
+  "paletteTodayDetail": {
+    "message": "$SPACE$ — Today",
+    "placeholders": {
+      "space": { "content": "$1" }
+    }
+  },
+  "paletteArchiveDetail": {
+    "message": "Archive"
   },
   "invalidPageToast": {
     "message": "Browser-internal pages cannot be pinned"
@@ -423,7 +489,7 @@
     "message": "Export to file"
   },
   "exportHint": {
-    "message": "Spaces, anchors, and notes"
+    "message": "Favorites, spaces, anchors, and notes"
   },
   "disableSyncAction": {
     "message": "Disable sync and forget the token"

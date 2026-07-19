@@ -1,7 +1,7 @@
-# Anchors — visual specification (v0.8.2)
+# Anchors — visual specification (v0.9.0)
 
 This document is the source of truth for the implemented panel design. The
-v0.8.2 source and bundled assets follow these tokens, component rules, states,
+v0.9.0 source and bundled assets follow these tokens, component rules, states,
 and responsive constraints.
 
 ## 1. Design tokens
@@ -14,7 +14,7 @@ Surfaces (neutral, warm-free):
 | `--bg1` | `#1d1e22` | inset surfaces: note, inputs |
 | `--bg2` | `#24262b` | hover fill |
 | `--bg3` | `#2c2e34` | pressed fill, controls (selects, buttons) |
-| `--surface` | `#232428` | floating: menus, settings group cards |
+| `--surface` | `#232428` | floating: menus, Command Palette, settings group cards |
 | sheet base | `#1f2024` | settings sheet |
 | dialog base | `#212226` | centered dialogs |
 | `--line` | `rgba(255,255,255,.07)` | hairline separators |
@@ -65,7 +65,7 @@ monospace).
 - Radii: 6 px (rows, small controls) · 8 px (tiles, note, inputs, toast) ·
   10 px (menus, group cards) · 12 px (dialog) · 14 px top corners (sheet).
 - Row height 32 px; row gap 1 px; favicon 16 px, radius 4 px.
-- Space tile 26 px, radius 8; icon buttons 26 px (footer gear 28 px);
+- Favorite tile 28 px and Space tile 26 px, both radius 8; icon buttons 26 px (footer gear 28 px);
   row hover buttons 24 px.
 - Header: 10 px padding, 6 px gap between rail and title row.
 - Main padding 8 px; sections separated by 14 px.
@@ -95,6 +95,7 @@ Semantic mapping (interface `i-*`):
 | `i-anchor` | Anchors brand glyph; pin tab (header/Today/menus) |
 | `i-x` | close tab, unpin, remove, close sheet, disable sync |
 | `i-search` | archive search; empty Today/no-matches hint |
+| `i-star` | add to or identify Favorites |
 | `i-trash` | clear archive, delete space |
 | `i-moon` | sleeping state; Sleep setting |
 | `i-pop` | move to separate window; restore from archive |
@@ -144,6 +145,10 @@ color; hover 30% tint; active = solid space color, glyph `#15161a`, 1 px
 `rgba(255,255,255,.16)` ring (no glow); press scale .94. Add-space: 1 px
 dashed `rgba(255,255,255,.24)` box, `--text3` → hover `--text`/`.4`.
 
+**Favorites rail**: horizontally scrolling 28 px favicon tiles above Spaces,
+separated by a hairline. Active = 15% Space tint plus a 1 px inset accent;
+away-from-home = 5 px accent dot. The rail is absent when Favorites is empty.
+
 **Anchor row**: [pill 3×14 when active] favicon 16 · title (ellipsis) ·
 away dot 6 px `--sp` · sleep crescent 12 px `--text3` · hover buttons
 (home, dots). Active row = 10% `--sp` tint (15% on hover). Sleeping: favicon
@@ -176,9 +181,16 @@ opacity; selected = full + 2 px dark gap ring + check) → Cancel / OK
 (OK = `--sp` fill, dark text; danger = `--danger-strong`, white text).
 
 **Context menu**: `--surface`, r 10, 4 px padding, min-width 200, max-width
-`calc(100vw − 16px)`, shadow `0 12px 32px rgba(0,0,0,.55)`; items 12.5 px
+`calc(100vw − 16px)`, max-height `calc(100vh − 16px)`, shadow
+`0 12px 32px rgba(0,0,0,.55)`; items 12.5 px
 with 14 px icon at 80% opacity; danger red + red tint hover; disabled
 `--text-disabled`. Clamps to viewport (8 px margins), flips up when needed.
+
+**Command Palette**: centered floating surface, width `min(430px, 100%)`,
+maximum viewport-aware height, 44 px search row, up to 14 visible ranked
+results, and a compact keyboard-help footer. Results use favicon or 16 px
+semantic icon, 12.5 px title, and 10.5 px contextual detail. The selected
+option uses `--bg3`; the backdrop dims and blurs the panel.
 
 **Toast**: fixed, centered, bottom 50 px, `--bg3` + `--line2`, r 8, 12 px.
 
@@ -209,8 +221,8 @@ panel-overview.png):
   horizontal scrollbar is structurally impossible;
 - vertical scrollbar: 8 px, transparent track, inset thumb — does not
   dominate at 280;
-- header: rail scrolls horizontally under a hidden scrollbar; the three
-  header actions are fixed-size and never wrap;
+- header: Favorites and Space rails scroll horizontally under hidden
+  scrollbars; the four header actions are fixed-size and never wrap;
 - settings selects/switch never shrink (`flex:none`); labels truncate; Data
   hints truncate under their labels;
 - menus ≤ `100vw − 16px`; dialogs ≤ `100% − 32px`; sheet unchanged;

@@ -2,11 +2,11 @@
 
 Anchors brings the pinned-tab and space workflow from Arc to Chrome, Edge,
 Brave, and Vivaldi. It is a lightweight Manifest V3 extension with a compact
-side panel: every anchor has a saved home URL, while regular tabs stay in a
-separate Today section. By default, anchors reuse one live browser tab per
+side panel: every anchor has a saved home URL, while regular tabs stay in the
+Today section of their Space. By default, anchors reuse one live browser tab per
 window instead of filling the native tab strip.
 
-Current version: **0.8.2**.
+Current version: **0.9.0**.
 
 ![Anchors main panel](docs/screenshots/panel-overview.png)
 
@@ -22,10 +22,18 @@ _The screenshots use fictional demo data._
   tab. Click the active anchor again to return it to the saved home URL. Enable
   **Keep anchor tabs open** to give every opened anchor a separate browser tab.
 - **Spaces.** Every space has a name, color, custom icon, anchor collection,
-  and note. Legacy emoji icons remain compatible.
+  note, and its own Today tabs. Switching Spaces restores the last tab used in
+  that Space without syncing device-local tab IDs.
+- **Favorites.** Keep up to 12 global anchor tabs above the Space rail. They
+  retain the anchor home-page lifecycle and sync through the encrypted Gist.
+- **Command Palette.** Press `Ctrl+K`, `Command+K`, or `/` while the panel is
+  focused to search Favorites, Spaces, anchors, Today tabs, the archive, and
+  common actions from one keyboard-driven surface.
 - **Folders and ordering.** Group anchors into one-level folders and reorder
   items with drag and drop.
-- **Today.** Open, close, or pin regular web tabs from the current window.
+- **Today.** Open, close, favorite, pin, or move regular web tabs between
+  Spaces in the current window. Restored tabs recover their Space through
+  Chromium session metadata.
 - **Auto-reset.** Return an inactive anchor to its home URL after a configurable
   interval.
 - **Sleep.** Discard inactive anchor tabs with Chromium's `tabs.discard` API.
@@ -37,8 +45,8 @@ _The screenshots use fictional demo data._
   with the current page, or clear site data for that origin.
 - **Import and export.** Import Arc `StorableSidebar.json` files or Anchors JSON
   exports.
-- **Encrypted sync.** Sync spaces, anchors, settings, and notes through an
-  end-to-end encrypted GitHub Gist.
+- **Encrypted sync.** Sync Favorites, spaces, anchors, settings, and notes
+  through an end-to-end encrypted GitHub Gist.
 
 ### Tab lifecycle
 
@@ -90,7 +98,7 @@ the same Go Home action.
 Anchors imports non-empty spaces and their pinned items. Nested folders are
 flattened to one level. Arc browsing history and unpinned tabs are not imported.
 
-An Anchors export contains spaces, anchors, folders, and notes. It does not
+An Anchors export contains Favorites, spaces, anchors, folders, and notes. It does not
 contain the local archive, GitHub token, or sync encryption key.
 
 ## GitHub Gist sync
@@ -143,6 +151,7 @@ See the [official GitHub Gists API documentation](https://docs.github.com/en/res
 | --- | --- |
 | `tabs` | Read tab URL, title, and favicon; create, focus, close, and discard tabs. |
 | `storage` | Store spaces, anchors, settings, notes, the archive, and runtime bindings. |
+| `sessions` | Restore each open Today tab to its device-local Space after a browser restart. |
 | `alarms` | Run auto-reset, suspension, archiving, and background Gist sync. |
 | `favicon` | Load site icons through Chromium's internal favicon API. |
 | `sidePanel` | Display Anchors in the browser Side Panel. |
@@ -159,14 +168,16 @@ and [`sidePanel`](https://developer.chrome.com/docs/extensions/reference/api/sid
 
 ## Data storage
 
-- `chrome.storage.local`: space metadata, settings, anchors, folders, notes,
-  the archive, and Gist configuration, including the token and encryption key.
+- `chrome.storage.local`: Favorites, space metadata, settings, anchors,
+  folders, notes, the archive, and Gist configuration, including the token and encryption key.
   Large anchor lists remain split into chunks.
 - `chrome.storage.sync`: no active application data. On upgrade, Anchors copies
   a newer legacy plaintext snapshot to local storage and then removes the old
   browser-sync keys.
-- `chrome.storage.session`: current tab IDs, anchor activity times, and the age
-  of regular tabs. This state resets when the browser session ends.
+- `chrome.storage.session`: per-window active Spaces, current tab IDs, Today
+  assignments, anchor activity times, and the age of regular tabs.
+- `chrome.sessions` tab values: the Space ID of each open Today tab, used only
+  to recover local assignments when Chromium restores a browser session.
 
 The archive is local, does not sync between devices, and keeps up to 500 items.
 Persistent data remains subject to the browser's `chrome.storage.local` quota.
@@ -182,6 +193,8 @@ translation exists under `_locales`, and falls back to English otherwise.
 - `panel.html`, `panel.css`, `panel.js` — side-panel UI;
 - `background.js` — service worker and tab maintenance;
 - `tab-state.js` — deterministic anchor-tab lifecycle transitions;
+- `workspace-state.js` — deterministic per-window Space and Today transitions;
+- `palette.js` — Command Palette search ranking;
 - `shared.js` — persistent and session storage;
 - `sync.js` — GitHub Gist synchronization;
 - `tests/` — dependency-free lifecycle tests using Node's built-in test runner;
@@ -200,6 +213,8 @@ page.
 - Live tab bindings do not survive a browser restart. Anchors reattaches a
   restored tab that is still on the exact home URL; otherwise the next click
   opens or reuses an anchor tab.
+- Today-to-Space assignments survive normal Chromium session restore but are
+  device-local and are never synchronized through Gist.
 - A live anchor is bound to one browser tab globally. Selecting that same
   anchor from another window focuses its existing tab and window.
 - The automatic-archive age counter starts again after a browser restart.

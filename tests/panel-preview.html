@@ -24,7 +24,14 @@
         '<script src="/tests/panel-preview-mock.js"><\/script>' +
         '<script type="module" src="/panel.js"><\/script>'
       );
-    document.querySelector('iframe').srcdoc = prepared;
+    const frame = document.querySelector('iframe');
+    const requestedOverlay = new URLSearchParams(location.search).get('open');
+    if (requestedOverlay === 'palette') {
+      frame.addEventListener('load', () => {
+        setTimeout(() => frame.contentDocument?.querySelector('#open-palette')?.click(), 50);
+      }, { once: true });
+    }
+    frame.srcdoc = prepared;
   </script>
 </body>
 </html>

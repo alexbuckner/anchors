@@ -1,12 +1,17 @@
 import {
   loadMeta, loadAllAnchors, normalizeUrl,
   getBindings, setBindings, getLastActive, setLastActive,
+  getWorkspaceState, setWorkspaceState,
   ensureLocalStorage, isPersistentKey, purgeLegacyBrowserSync
 } from './shared.js';
 import {
   assignAnchorTab, pruneTabState, releaseAnchors,
   removeTab, replaceTab, touchTab
 } from './tab-state.js';
+import {
+  activateWorkspace, removeWorkspaceTab, repairWorkspaceState,
+  replaceWorkspaceTab, touchWorkspaceTab
+} from './workspace-state.js';
 import { syncNow } from './sync.js';
 
 // Clicking the extension action opens the side panel in Chrome, Edge, and Brave.
@@ -19,7 +24,8 @@ try {
 }
 
 const TAB_MESSAGE_SCOPE = 'anchors-tab-state';
-const RUNTIME_PROTOCOL_VERSION = 2;
+const RUNTIME_PROTOCOL_VERSION = 3;
+const TAB_SPACE_SESSION_KEY = 'anchorsSpaceId';
 const isWebUrl = (u) => typeof u === 'string' && (u.startsWith('http://') || u.startsWith('https://'));
 
 // The service worker is the sole writer of runtime tab state. Serializing every
@@ -77,11 +83,42 @@ async function setTabSeen(tabSeen) {
   await chrome.storage.session.set({ tabSeen });
 }
 
+async function restoredTabSpaces(tabs, bindings, current) {
+  const hydrated = Object.assign({}, current || {});
+  if (!chrome.sessions?.getTabValue) return hydrated;
+  const boundTabIds = new Set(Object.values(bindings || {}));
+  await Promise.all((tabs || []).map(async tab => {
+    if (tab.pinned || boundTabIds.has(tab.id) || hydrated[tab.id]) return;
+    const spaceId = await chrome.sessions.getTabValue(tab.id, TAB_SPACE_SESSION_KEY).catch(() => null);
+    if (typeof spaceId === 'string' && spaceId) hydrated[tab.id] = spaceId;
+  }));
+  return hydrated;
+}
+
+async function rememberTabSpace(tabId, spaceId) {
+  if (!chrome.sessions?.setTabValue || !spaceId) return;
+  await chrome.sessions.setTabValue(tabId, TAB_SPACE_SESSION_KEY, spaceId).catch(() => {});
+}
+
+async function forgetTabSpace(tabId) {
+  if (!chrome.sessions?.removeTabValue) return;
+  await chrome.sessions.removeTabValue(tabId, TAB_SPACE_SESSION_KEY).catch(() => {});
+}
+
+async function syncRestoredTabSpaces(before, after) {
+  const tabIds = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+  await Promise.all([...tabIds].map(tabId => {
+    if (before?.[tabId] === after?.[tabId]) return null;
+    return after?.[tabId] ? rememberTabSpace(Number(tabId), after[tabId]) : forgetTabSpace(Number(tabId));
+  }));
+}
+
 async function persistRuntime(ctx) {
   await Promise.all([
     setBindings(ctx.bindings),
     setLastActive(ctx.lastActive),
-    setTabSeen(ctx.seen)
+    setTabSeen(ctx.seen),
+    setWorkspaceState(ctx.workspace)
   ]);
 }
 
@@ -136,12 +173,13 @@ async function reconcileSingleWindows(ctx) {
 
 async function prepareRuntime({ reconcileSingle = false } = {}) {
   const meta = await loadMeta();
-  const [anchors, allTabs, bindings, lastActive, seen] = await Promise.all([
+  const [anchors, allTabs, bindings, lastActive, seen, workspace] = await Promise.all([
     loadAllAnchors(meta),
     chrome.tabs.query({}),
     getBindings(),
     getLastActive(),
-    getTabSeen()
+    getTabSeen(),
+    getWorkspaceState()
   ]);
   const now = Date.now();
   const liveTabIds = new Set(allTabs.map(tab => tab.id));
@@ -151,13 +189,27 @@ async function prepareRuntime({ reconcileSingle = false } = {}) {
     validAnchorIds: new Set(anchors.map(anchor => anchor.id)),
     liveTabIds
   });
+  const anchorSpaces = Object.fromEntries(anchors.map(anchor => [anchor.id, anchor.spaceId ?? null]));
+  const hydratedTabSpaces = await restoredTabSpaces(allTabs, plan.bindings, workspace.tabSpaces);
+  const repairedWorkspace = repairWorkspaceState({
+    tabs: allTabs,
+    bindings: plan.bindings,
+    anchorSpaces,
+    tabSpaces: hydratedTabSpaces,
+    activeSpaces: workspace.activeSpaces,
+    lastTabs: workspace.lastTabs,
+    validSpaceIds: new Set(meta.spaces.map(space => space.id)),
+    fallbackSpaceId: meta.activeSpaceId || meta.spaces[0]?.id || null
+  });
   const ctx = {
     meta,
     anchors,
+    anchorSpaces,
     allTabs,
     bindings: plan.bindings,
     lastActive: plan.lastActive,
-    seen: Object.assign({}, seen)
+    seen: Object.assign({}, seen),
+    workspace: repairedWorkspace
   };
 
   for (const tabId of plan.releasedTabIds) ctx.seen[tabId] = now;
@@ -169,6 +221,7 @@ async function prepareRuntime({ reconcileSingle = false } = {}) {
   }
 
   if (reconcileSingle) await reconcileSingleWindows(ctx);
+  await syncRestoredTabSpaces(hydratedTabSpaces, ctx.workspace.tabSpaces);
   await persistRuntime(ctx);
   return ctx;
 }
@@ -184,16 +237,40 @@ async function assignInContext(ctx, anchorId, tab) {
     keepAnchorTabs: !!ctx.meta.settings.keepAnchorTabs
   });
   applyStatePlan(ctx, plan);
+  delete ctx.workspace.tabSpaces[tab.id];
+  await forgetTabSpace(tab.id);
+  ctx.workspace = touchWorkspaceTab({
+    state: ctx.workspace,
+    tab,
+    bindings: ctx.bindings,
+    anchorSpaces: ctx.anchorSpaces,
+    fallbackSpaceId: ctx.meta.activeSpaceId || ctx.meta.spaces[0]?.id || null
+  });
   if (!(tab.id in ctx.seen)) ctx.seen[tab.id] = Date.now();
   await persistRuntime(ctx);
 }
 
-async function releaseInContext(ctx, anchorIds) {
-  applyStatePlan(ctx, releaseAnchors({
+async function releaseInContext(ctx, anchorIds, targetSpaceId = null) {
+  const plan = releaseAnchors({
     bindings: ctx.bindings,
     lastActive: ctx.lastActive,
     anchorIds
-  }));
+  });
+  applyStatePlan(ctx, plan);
+  const validSpaces = new Set(ctx.meta.spaces.map(space => space.id));
+  for (const tabId of plan.releasedTabIds) {
+    const tab = ctx.allTabs.find(item => item.id === tabId) || await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab) continue;
+    const spaceId = validSpaces.has(targetSpaceId)
+      ? targetSpaceId
+      : ctx.workspace.activeSpaces[tab.windowId] || ctx.meta.activeSpaceId || ctx.meta.spaces[0]?.id;
+    if (validSpaces.has(spaceId)) {
+      ctx.workspace.tabSpaces[tabId] = spaceId;
+      ctx.workspace.lastTabs[tab.windowId] ||= {};
+      ctx.workspace.lastTabs[tab.windowId][spaceId] = tabId;
+      await rememberTabSpace(tabId, spaceId);
+    }
+  }
   await persistRuntime(ctx);
 }
 
@@ -338,6 +415,45 @@ async function reloadAnchor(anchorId) {
   return {};
 }
 
+async function activateSpace(spaceId, windowId, focusTab = true) {
+  const ctx = await prepareRuntime();
+  if (!ctx.meta.spaces.some(space => space.id === spaceId)) throw new Error('Space not found');
+  const activated = activateWorkspace({
+    state: ctx.workspace,
+    windowId,
+    spaceId,
+    tabs: ctx.allTabs,
+    bindings: ctx.bindings,
+    anchorSpaces: ctx.anchorSpaces
+  });
+  ctx.workspace = {
+    tabSpaces: activated.tabSpaces,
+    activeSpaces: activated.activeSpaces,
+    lastTabs: activated.lastTabs
+  };
+  await persistRuntime(ctx);
+  if (focusTab && activated.tabId) {
+    await chrome.tabs.update(activated.tabId, { active: true }).catch(() => {});
+    await chrome.windows.update(windowId, { focused: true }).catch(() => {});
+  }
+  return { activeSpaceId: spaceId, tabId: activated.tabId };
+}
+
+async function moveTodayTab(tabId, spaceId) {
+  const ctx = await prepareRuntime();
+  if (!ctx.meta.spaces.some(space => space.id === spaceId)) throw new Error('Space not found');
+  if (Object.values(ctx.bindings).includes(tabId)) throw new Error('Anchor tabs cannot be moved as Today tabs');
+  const tab = ctx.allTabs.find(item => item.id === tabId);
+  if (!tab || tab.pinned) throw new Error('Tab not found');
+  ctx.workspace.tabSpaces[tabId] = spaceId;
+  ctx.workspace.lastTabs[tab.windowId] ||= {};
+  ctx.workspace.lastTabs[tab.windowId][spaceId] = tabId;
+  if (tab.active) ctx.workspace.activeSpaces[tab.windowId] = spaceId;
+  await rememberTabSpace(tabId, spaceId);
+  await persistRuntime(ctx);
+  return { tabId, spaceId };
+}
+
 async function handleDuplicateNavigation(tabId, changeInfo) {
   if (!changeInfo.url || !isWebUrl(changeInfo.url)) return;
   const [meta, bindings] = await Promise.all([loadMeta(), getBindings()]);
@@ -385,35 +501,52 @@ async function handleDuplicateNavigation(tabId, changeInfo) {
 
 chrome.tabs.onCreated.addListener((tab) => {
   enqueueTabState(async () => {
-    const seen = await getTabSeen();
-    seen[tab.id] = Date.now();
-    await setTabSeen(seen);
+    await prepareRuntime();
   }).catch(() => {});
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   enqueueTabState(async () => {
-    const [bindings, lastActive, seen] = await Promise.all([getBindings(), getLastActive(), getTabSeen()]);
+    const [bindings, lastActive, seen, workspace] = await Promise.all([
+      getBindings(), getLastActive(), getTabSeen(), getWorkspaceState()
+    ]);
     const next = removeTab({ bindings, lastActive, tabId });
+    const nextWorkspace = removeWorkspaceTab(workspace, tabId);
     delete seen[tabId];
-    await Promise.all([setBindings(next.bindings), setLastActive(next.lastActive), setTabSeen(seen)]);
+    await Promise.all([
+      setBindings(next.bindings), setLastActive(next.lastActive), setTabSeen(seen),
+      setWorkspaceState(nextWorkspace)
+    ]);
   }).catch(() => {});
 });
 
 chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
   enqueueTabState(async () => {
-    const [bindings, seen] = await Promise.all([getBindings(), getTabSeen()]);
+    const [bindings, seen, workspace] = await Promise.all([getBindings(), getTabSeen(), getWorkspaceState()]);
     const nextBindings = replaceTab({ bindings, oldTabId: removedTabId, newTabId: addedTabId });
+    const nextWorkspace = replaceWorkspaceTab(workspace, removedTabId, addedTabId);
     seen[addedTabId] = seen[addedTabId] || seen[removedTabId] || Date.now();
     delete seen[removedTabId];
-    await Promise.all([setBindings(nextBindings), setTabSeen(seen)]);
+    if (nextWorkspace.tabSpaces[addedTabId]) {
+      await rememberTabSpace(addedTabId, nextWorkspace.tabSpaces[addedTabId]);
+    }
+    await Promise.all([setBindings(nextBindings), setTabSeen(seen), setWorkspaceState(nextWorkspace)]);
   }).catch(() => {});
 });
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   enqueueTabState(async () => {
-    const [bindings, lastActive] = await Promise.all([getBindings(), getLastActive()]);
-    await setLastActive(touchTab({ bindings, lastActive, tabId }));
+    const ctx = await prepareRuntime();
+    ctx.lastActive = touchTab({ bindings: ctx.bindings, lastActive: ctx.lastActive, tabId });
+    const tab = ctx.allTabs.find(item => item.id === tabId) || await chrome.tabs.get(tabId).catch(() => null);
+    ctx.workspace = touchWorkspaceTab({
+      state: ctx.workspace,
+      tab,
+      bindings: ctx.bindings,
+      anchorSpaces: ctx.anchorSpaces,
+      fallbackSpaceId: ctx.meta.activeSpaceId || ctx.meta.spaces[0]?.id || null
+    });
+    await persistRuntime(ctx);
   }).catch(() => {});
 });
 
@@ -445,9 +578,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     goHome: () => goHome(message.anchorId, message.windowId),
     popOut: () => popOutAnchor(message.anchorId),
     reload: () => reloadAnchor(message.anchorId),
+    spaceState: async () => {
+      const ctx = await prepareRuntime();
+      return {
+        activeSpaceId: ctx.workspace.activeSpaces[message.windowId] ||
+          ctx.meta.activeSpaceId || ctx.meta.spaces[0]?.id || null,
+        tabSpaces: ctx.workspace.tabSpaces
+      };
+    },
+    activateSpace: () => activateSpace(message.spaceId, message.windowId, message.focusTab !== false),
+    moveToday: () => moveTodayTab(message.tabId, message.spaceId),
     release: async () => {
       const ctx = await prepareRuntime();
-      await releaseInContext(ctx, message.anchorIds || []);
+      await releaseInContext(ctx, message.anchorIds || [], message.spaceId || null);
       return {};
     },
     repair: async () => {

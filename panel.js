@@ -2,8 +2,9 @@ import {
   PALETTE, normalizeUrl,
   loadMeta, saveMeta, loadAnchors, saveAnchors, deleteAnchors, cleanupOrphans,
   loadNote, saveNote,
-  getBindings, isPersistentKey, purgeLegacyBrowserSync
+  getBindings, getWorkspaceState, isPersistentKey, purgeLegacyBrowserSync
 } from './shared.js';
+import { filterPalette } from './palette.js';
 import {
   syncNow, migratePlaintextGist,
   getSyncConfig, setSyncConfig,
@@ -20,10 +21,16 @@ let archiveOpen = false;
 let noteTimer = null;
 let importing = false; // Ignore storage.onChanged while an import is writing multiple related keys.
 let settingsOpening = false;
+let panelWindowId = null;
+let activeSpaceId = null;
+let paletteItems = [];
+let paletteResults = [];
+let paletteIndex = 0;
 
 const $ = (sel) => document.querySelector(sel);
 const SVG_NS = 'http://www.w3.org/2000/svg';
-const RUNTIME_PROTOCOL_VERSION = 2;
+const RUNTIME_PROTOCOL_VERSION = 3;
+const FAVORITES_LIMIT = 12;
 
 function t(key, substitutions) {
   return chrome.i18n.getMessage(key, substitutions) || key;
@@ -170,7 +177,28 @@ async function currentWindow() {
 }
 
 function activeSpace() {
-  return meta.spaces.find(s => s.id === meta.activeSpaceId) || meta.spaces[0];
+  return meta.spaces.find(s => s.id === activeSpaceId) ||
+    meta.spaces.find(s => s.id === meta.activeSpaceId) || meta.spaces[0];
+}
+
+async function switchSpace(spaceId, { focusTab = true, restoreFocus = false } = {}) {
+  const space = meta.spaces.find(item => item.id === spaceId);
+  if (!space) return false;
+  try {
+    await tabState('activateSpace', {
+      spaceId,
+      windowId: panelWindowId ?? await currentWindow(),
+      focusTab
+    });
+  } catch (error) {
+    toast(t('tabActionError', error.message));
+    return false;
+  }
+  activeSpaceId = spaceId;
+  anchors = await loadAnchors(spaceId);
+  await loadNoteUI();
+  await render(restoreFocus ? spaceId : null);
+  return true;
 }
 
 // Locate an item by id at the top level or inside a folder.
@@ -559,6 +587,108 @@ function emptyHint(iconName, text) {
   return li;
 }
 
+function isFavoriteUrl(url) {
+  const normalized = normalizeUrl(url);
+  return (meta.favorites || []).some(favorite => normalizeUrl(favorite.url) === normalized);
+}
+
+async function moveAnchorToFavorites(anchor) {
+  if ((meta.favorites || []).length >= FAVORITES_LIMIT) {
+    toast(t('favoritesFullToast'));
+    return;
+  }
+  if (isFavoriteUrl(anchor.url)) {
+    toast(t('alreadyFavoriteToast'));
+    return;
+  }
+  const loc = findLoc(anchor.id);
+  if (!loc) return;
+  const [moved] = loc.arr.splice(loc.index, 1);
+  meta.favorites.push(moved);
+  await saveMeta(meta);
+  if (!await persist()) {
+    loc.arr.splice(loc.index, 0, moved);
+    meta.favorites = meta.favorites.filter(item => item.id !== moved.id);
+    await saveMeta(meta).catch(() => {});
+    return;
+  }
+  render();
+}
+
+async function moveFavoriteToActiveSpace(favorite) {
+  const index = meta.favorites.findIndex(item => item.id === favorite.id);
+  if (index < 0) return;
+  meta.favorites.splice(index, 1);
+  anchors.push(favorite);
+  if (!await persist()) {
+    anchors.pop();
+    meta.favorites.splice(index, 0, favorite);
+    return;
+  }
+  await saveMeta(meta);
+  render();
+}
+
+async function removeFavorite(favorite) {
+  meta.favorites = meta.favorites.filter(item => item.id !== favorite.id);
+  await saveMeta(meta);
+  await tabState('release', {
+    anchorIds: [favorite.id],
+    spaceId: activeSpace().id
+  }).catch(() => {});
+  render();
+}
+
+function favoriteTile(favorite, tabs, bindings) {
+  const boundTab = bindings[favorite.id] ? tabs.find(tab => tab.id === bindings[favorite.id]) : null;
+  const isAway = boundTab && normalizeUrl(boundTab.url) !== normalizeUrl(favorite.url);
+  const button = document.createElement('button');
+  button.className = 'favorite-tile';
+  button.title = favorite.title || favorite.url;
+  button.setAttribute('aria-label', favorite.title || favorite.url);
+  if (boundTab?.active) button.classList.add('active');
+  if (isAway) button.classList.add('away');
+
+  const img = document.createElement('img');
+  img.alt = '';
+  img.src = faviconUrl(favorite.url);
+  img.onerror = () => { img.onerror = null; img.src = localFallbackFavicon(favorite.url); };
+  button.appendChild(img);
+  button.onclick = () => openAnchor(favorite);
+
+  const menuItems = () => [
+    { icon: 'i-home', label: t('goHomeAction'), action: () => goHome(favorite) },
+    {
+      icon: 'i-anchor', label: t('makeCurrentHomeAction'), disabled: !isAway,
+      action: async () => {
+        favorite.url = boundTab.url;
+        await saveMeta(meta);
+        toast(t('homeUpdatedToast'));
+        render();
+      }
+    },
+    { sep: true },
+    {
+      icon: 'i-pencil', label: t('renameAction'),
+      action: () => showDialog({
+        title: t('anchorNameDialog'), withInput: true, initial: favorite.title || '', okText: t('saveButton'),
+        onOk: async (name) => {
+          favorite.title = name;
+          await saveMeta(meta);
+          render();
+        }
+      })
+    },
+    { icon: 'i-anchor', label: t('moveToSpaceAction', activeSpace().name), action: () => moveFavoriteToActiveSpace(favorite) },
+    { icon: 'i-x', label: t('removeFavoriteAction'), danger: true, action: () => removeFavorite(favorite) }
+  ];
+  button.oncontextmenu = (e) => {
+    e.preventDefault();
+    showMenu(button, menuItems());
+  };
+  return button;
+}
+
 function anchorRow(a, tabs, bindings, depth) {
   const boundTab = bindings[a.id] ? tabs.find(t => t.id === bindings[a.id]) : null;
   const isAway = boundTab && normalizeUrl(boundTab.url) !== normalizeUrl(a.url);
@@ -621,6 +751,11 @@ function anchorRow(a, tabs, bindings, depth) {
       })
     },
     {
+      icon: 'i-star',
+      label: t('moveToFavoritesAction'),
+      action: () => moveAnchorToFavorites(a)
+    },
+    {
       icon: 'i-x',
       label: t('unpinAction'),
       danger: true,
@@ -633,7 +768,7 @@ function anchorRow(a, tabs, bindings, depth) {
           render();
           return;
         }
-        await tabState('release', { anchorIds: [a.id] }).catch(() => {});
+        await tabState('release', { anchorIds: [a.id], spaceId: activeSpace().id }).catch(() => {});
         render();
       }
     }
@@ -811,14 +946,34 @@ async function render(focusSpaceId = null) {
     ? document.activeElement.closest('#spaces .tile')
     : null;
   const preservedFocusSpaceId = focusSpaceId || focusedTile?.dataset.spaceId || null;
+  const winId = panelWindowId ?? await currentWindow();
+  panelWindowId = winId;
+  const workspace = await getWorkspaceState();
+  const runtimeSpaceId = workspace.activeSpaces[winId];
+  const nextSpaceId = meta.spaces.some(item => item.id === runtimeSpaceId)
+    ? runtimeSpaceId
+    : (meta.spaces.some(item => item.id === activeSpaceId) ? activeSpaceId : meta.activeSpaceId || meta.spaces[0]?.id);
+  if (nextSpaceId !== activeSpaceId) {
+    activeSpaceId = nextSpaceId;
+    anchors = await loadAnchors(activeSpaceId);
+    await loadNoteUI();
+  }
   const space = activeSpace();
-  const winId = await currentWindow();
   const bindings = await getBindings();
   const tabs = await chrome.tabs.query({ windowId: winId });
   const boundTabIds = new Set(Object.values(bindings));
 
   // The active space color drives every accent in the panel.
   document.documentElement.style.setProperty('--sp', space.color);
+
+  // Favorites are global anchors and therefore stay visible in every Space.
+  const favoritesBar = $('#favorites-bar');
+  const favoritesEl = $('#favorites');
+  favoritesEl.innerHTML = '';
+  for (const favorite of (meta.favorites || [])) {
+    favoritesEl.appendChild(favoriteTile(favorite, tabs, bindings));
+  }
+  favoritesBar.style.display = meta.favorites?.length ? '' : 'none';
 
   // Spaces: a tablist with roving tabindex; arrows move focus, Enter/Space activate.
   const spacesEl = $('#spaces');
@@ -846,11 +1001,7 @@ async function render(focusSpaceId = null) {
     tile.setAttribute('aria-label', s.name);
     tile.onclick = async () => {
       const restoreFocus = document.activeElement === tile;
-      meta.activeSpaceId = s.id;
-      await saveMeta(meta);
-      anchors = await loadAnchors(s.id);
-      await loadNoteUI();
-      await render(restoreFocus ? s.id : null);
+      await switchSpace(s.id, { restoreFocus });
     };
     tile.ondblclick = () => editSpace(s);
     tile.oncontextmenu = (e) => {
@@ -898,12 +1049,13 @@ async function render(focusSpaceId = null) {
   $('#note-head').setAttribute('aria-expanded', String(noteOpen));
   $('#note').style.display = noteOpen ? '' : 'none';
 
-  // Today contains regular web tabs that are not bound to anchors.
+  // Today contains only this window's regular tabs assigned to the active Space.
   const today = $('#today');
   today.innerHTML = '';
   let todayCount = 0;
   for (const tab of tabs) {
-    if (tab.pinned || boundTabIds.has(tab.id) || !isWebUrl(tab.url)) continue;
+    if (tab.pinned || boundTabIds.has(tab.id) || !isWebUrl(tab.url) ||
+        workspace.tabSpaces[tab.id] !== space.id) continue;
     todayCount++;
     const { li, main } = rowShell(tab.title || tab.url, () => chrome.tabs.update(tab.id, { active: true }));
     if (tab.active) li.classList.add('active');
@@ -921,6 +1073,7 @@ async function render(focusSpaceId = null) {
 
     const btns = document.createElement('span');
     btns.className = 'btns';
+    btns.appendChild(rowButton('i-star', t('favoriteCurrentTabAction'), (e) => { e.stopPropagation(); pinTab(tab, null, true); }));
     btns.appendChild(rowButton('i-anchor', t('pinAsAnchorTitle'), (e) => { e.stopPropagation(); pinTab(tab); }));
     btns.appendChild(rowButton('i-x', t('closeTitle'), (e) => { e.stopPropagation(); chrome.tabs.remove(tab.id); }));
 
@@ -928,8 +1081,20 @@ async function render(focusSpaceId = null) {
     li.appendChild(btns);
     li.oncontextmenu = (e) => {
       e.preventDefault();
+      const moveItems = meta.spaces
+        .filter(candidate => candidate.id !== space.id)
+        .map(candidate => ({
+          icon: 'i-pop',
+          label: t('moveToSpaceAction', candidate.name),
+          action: async () => {
+            await tabState('moveToday', { tabId: tab.id, spaceId: candidate.id });
+            render();
+          }
+        }));
       showMenu(li, [
+        { icon: 'i-star', label: t('favoriteCurrentTabAction'), action: () => pinTab(tab, null, true) },
         { icon: 'i-anchor', label: t('pinAsAnchorTitle'), action: () => pinTab(tab) },
+        ...(moveItems.length ? [{ sep: true }, ...moveItems] : []),
         { icon: 'i-x', label: t('closeTitle'), danger: true, action: () => chrome.tabs.remove(tab.id) }
       ]);
     };
@@ -981,28 +1146,41 @@ async function popOut(a) {
   scheduleRender();
 }
 
-async function pinTab(tab, folder = null) {
+async function pinTab(tab, folder = null, asFavorite = false) {
   if (!isWebUrl(tab.url)) { toast(t('invalidPageToast')); return; }
+  if (asFavorite && isFavoriteUrl(tab.url)) { toast(t('alreadyFavoriteToast')); return; }
+  if (asFavorite && meta.favorites.length >= FAVORITES_LIMIT) { toast(t('favoritesFullToast')); return; }
   const anchor = { id: crypto.randomUUID(), url: tab.url, title: tab.title || tab.url };
-  if (folder) {
+  if (asFavorite) {
+    meta.favorites.push(anchor);
+  } else if (folder) {
     folder.children = folder.children || [];
     folder.children.push(anchor);
     folder.collapsed = false;
   } else {
     anchors.push(anchor);
   }
-  if (!await persist()) {
-    const loc = findLoc(anchor.id);
-    if (loc) loc.arr.splice(loc.index, 1);
-    render();
-    return;
+  if (asFavorite) {
+    await saveMeta(meta);
+  } else {
+    if (!await persist()) {
+      const loc = findLoc(anchor.id);
+      if (loc) loc.arr.splice(loc.index, 1);
+      render();
+      return;
+    }
   }
   try {
     await bindTab(anchor, tab);
   } catch (error) {
-    const loc = findLoc(anchor.id);
-    if (loc) loc.arr.splice(loc.index, 1);
-    await persist();
+    if (asFavorite) {
+      meta.favorites = meta.favorites.filter(item => item.id !== anchor.id);
+      await saveMeta(meta);
+    } else {
+      const loc = findLoc(anchor.id);
+      if (loc) loc.arr.splice(loc.index, 1);
+      await persist();
+    }
     toast(t('tabActionError', error.message));
     return;
   }
@@ -1073,11 +1251,8 @@ function addSpace() {
     onOk: async (name, color, icon) => {
       const space = { id: crypto.randomUUID(), name, color, icon: icon || '' };
       meta.spaces.push(space);
-      meta.activeSpaceId = space.id;
       await saveMeta(meta);
-      anchors = [];
-      await loadNoteUI();
-      render();
+      await switchSpace(space.id);
     }
   });
 }
@@ -1112,10 +1287,12 @@ function removeSpace(space) {
         meta.activeSpaceId = meta.spaces[0].id;
       }
       await saveMeta(meta);
-      await tabState('release', { anchorIds: removedAnchorIds }).catch(() => {});
-      anchors = await loadAnchors(meta.activeSpaceId);
-      await loadNoteUI();
-      render();
+      const fallbackSpaceId = meta.spaces.some(item => item.id === activeSpaceId)
+        ? activeSpaceId
+        : meta.activeSpaceId;
+      await tabState('release', { anchorIds: removedAnchorIds, spaceId: fallbackSpaceId }).catch(() => {});
+      await tabState('repair').catch(() => {});
+      await switchSpace(fallbackSpaceId, { focusTab: false });
     }
   });
 }
@@ -1202,7 +1379,7 @@ function parseArcSidebar(obj) {
   return out;
 }
 
-async function importSpaces(spacesIn, sourceLabel) {
+async function importSpaces(spacesIn, sourceLabel, favoritesIn = []) {
   importing = true;
   try {
     let spaceCount = 0, anchorCount = 0;
@@ -1219,6 +1396,15 @@ async function importSpaces(spacesIn, sourceLabel) {
       spaceCount++;
       anchorCount += countAnchors(sp.items);
     }
+    for (const favorite of favoritesIn.slice(0, Math.max(0, FAVORITES_LIMIT - meta.favorites.length))) {
+      if (!favorite?.url || isFavoriteUrl(favorite.url)) continue;
+      meta.favorites.push({
+        id: crypto.randomUUID(),
+        url: favorite.url,
+        title: favorite.title || favorite.url
+      });
+      anchorCount++;
+    }
     await saveMeta(meta);
     anchors = await loadAnchors(activeSpace().id);
     toast(t('importSummaryToast', [sourceLabel, String(spaceCount), String(anchorCount)]));
@@ -1232,7 +1418,7 @@ async function handleImportFile(file) {
   try {
     const obj = JSON.parse(await file.text());
     if (obj.format === 'anchors-export') {
-      await importSpaces(obj.spaces || [], t('anchorsFileSource'));
+      await importSpaces(obj.spaces || [], t('anchorsFileSource'), obj.favorites || []);
     } else if (obj.sidebar) {
       await importSpaces(parseArcSidebar(obj), t('arcSource'));
     } else {
@@ -1244,7 +1430,13 @@ async function handleImportFile(file) {
 }
 
 async function exportToFile() {
-  const payload = { format: 'anchors-export', version: 1, exportedAt: new Date().toISOString(), spaces: [] };
+  const payload = {
+    format: 'anchors-export',
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    favorites: meta.favorites || [],
+    spaces: []
+  };
   for (const s of meta.spaces) {
     payload.spaces.push({
       name: s.name,
@@ -1263,6 +1455,229 @@ async function exportToFile() {
   URL.revokeObjectURL(url);
 }
 
+// ---------- command palette ----------
+
+function flatAnchors(items) {
+  const out = [];
+  for (const item of items || []) {
+    if (isFolder(item)) out.push(...(item.children || []));
+    else out.push(item);
+  }
+  return out;
+}
+
+async function openPaletteAnchor(anchor, spaceId = null) {
+  if (spaceId && spaceId !== activeSpace().id) {
+    if (!await switchSpace(spaceId, { focusTab: false })) return;
+  }
+  await openAnchor(anchor);
+}
+
+async function collectPaletteItems() {
+  const [bindings, workspace, tabs, archiveState] = await Promise.all([
+    getBindings(),
+    getWorkspaceState(),
+    chrome.tabs.query({ windowId: panelWindowId }),
+    chrome.storage.local.get('archive')
+  ]);
+  const boundTabIds = new Set(Object.values(bindings));
+  const items = [
+    {
+      id: 'action-pin', label: t('pinCurrentTabTitle'), detail: t('paletteActionDetail'),
+      icon: 'i-anchor', priority: 120, run: () => addCurrentTab()
+    },
+    {
+      id: 'action-favorite', label: t('favoriteCurrentTabAction'), detail: t('paletteActionDetail'),
+      icon: 'i-star', priority: 118,
+      run: async () => {
+        const [tab] = await chrome.tabs.query({ active: true, windowId: panelWindowId });
+        if (tab) await pinTab(tab, null, true);
+      }
+    },
+    {
+      id: 'action-folder', label: t('newFolderTitle'), detail: t('paletteActionDetail'),
+      icon: 'i-folder', priority: 112, run: addFolder
+    },
+    {
+      id: 'action-space', label: t('newSpaceTitle'), detail: t('paletteActionDetail'),
+      icon: 'i-plus', priority: 110, run: addSpace
+    },
+    {
+      id: 'action-sync', label: t('syncNowAction'), detail: t('paletteActionDetail'),
+      icon: 'i-sync', priority: 105, run: runSync
+    },
+    {
+      id: 'action-settings', label: t('settingsTitle'), detail: t('paletteActionDetail'),
+      icon: 'i-gear', priority: 100, run: openSettings
+    }
+  ];
+
+  for (const space of meta.spaces) {
+    items.push({
+      id: 'space-' + space.id,
+      label: space.name,
+      detail: t('paletteSpaceDetail'),
+      icon: iconSymbol(space.icon) || 'i-tabs',
+      keywords: 'space',
+      priority: space.id === activeSpace().id ? 96 : 70,
+      run: () => switchSpace(space.id)
+    });
+  }
+
+  for (const favorite of (meta.favorites || [])) {
+    items.push({
+      id: 'favorite-' + favorite.id,
+      label: favorite.title || favorite.url,
+      detail: t('paletteFavoriteDetail'),
+      url: favorite.url,
+      keywords: favorite.url,
+      priority: 94,
+      run: () => openPaletteAnchor(favorite)
+    });
+  }
+
+  for (const space of meta.spaces) {
+    const spaceAnchors = await loadAnchors(space.id);
+    for (const anchor of flatAnchors(spaceAnchors)) {
+      items.push({
+        id: 'anchor-' + anchor.id,
+        label: anchor.title || anchor.url,
+        detail: t('paletteAnchorDetail', space.name),
+        url: anchor.url,
+        keywords: anchor.url + ' ' + space.name,
+        priority: space.id === activeSpace().id ? 88 : 62,
+        run: () => openPaletteAnchor(anchor, space.id)
+      });
+    }
+  }
+
+  for (const tab of tabs) {
+    if (tab.pinned || boundTabIds.has(tab.id) || !isWebUrl(tab.url)) continue;
+    const space = meta.spaces.find(candidate => candidate.id === workspace.tabSpaces[tab.id]);
+    if (!space) continue;
+    items.push({
+      id: 'today-' + tab.id,
+      label: tab.title || tab.url,
+      detail: t('paletteTodayDetail', space.name),
+      url: tab.url,
+      keywords: tab.url + ' ' + space.name,
+      priority: space.id === activeSpace().id ? 86 : 58,
+      run: async () => {
+        if (space.id !== activeSpace().id) await switchSpace(space.id, { focusTab: false });
+        await chrome.tabs.update(tab.id, { active: true });
+      }
+    });
+  }
+
+  for (const [index, entry] of (archiveState.archive || []).slice(0, 100).entries()) {
+    items.push({
+      id: `archive-${entry.at}-${index}`,
+      label: entry.title || entry.url,
+      detail: t('paletteArchiveDetail'),
+      url: entry.url,
+      keywords: entry.url,
+      priority: 25,
+      run: async () => {
+        await chrome.tabs.create({ url: entry.url, windowId: panelWindowId });
+        const { archive } = await chrome.storage.local.get('archive');
+        await chrome.storage.local.set({
+          archive: (archive || []).filter(item => !(item.url === entry.url && item.at === entry.at))
+        });
+      }
+    });
+  }
+  return items;
+}
+
+function renderPaletteResults() {
+  paletteResults = filterPalette(paletteItems, $('#palette-search').value, 14);
+  paletteIndex = Math.max(0, Math.min(paletteIndex, paletteResults.length - 1));
+  const results = $('#palette-results');
+  results.innerHTML = '';
+  if (!paletteResults.length) {
+    const empty = document.createElement('div');
+    empty.className = 'palette-empty';
+    empty.textContent = t('commandPaletteNoResults');
+    results.appendChild(empty);
+    $('#palette-search').removeAttribute('aria-activedescendant');
+    return;
+  }
+
+  paletteResults.forEach((item, index) => {
+    const button = document.createElement('button');
+    button.id = `palette-option-${index}`;
+    button.className = 'palette-item';
+    button.setAttribute('role', 'option');
+    button.setAttribute('aria-selected', String(index === paletteIndex));
+    button.tabIndex = -1;
+    if (item.url) {
+      const img = document.createElement('img');
+      img.alt = '';
+      img.src = faviconUrl(item.url);
+      img.onerror = () => { img.onerror = null; img.src = localFallbackFavicon(item.url); };
+      button.appendChild(img);
+    } else {
+      button.appendChild(icon(item.icon || 'i-search', 16));
+    }
+    const copy = document.createElement('span');
+    copy.className = 'palette-copy';
+    const label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = item.label;
+    const detail = document.createElement('span');
+    detail.className = 'detail';
+    detail.textContent = item.detail || '';
+    copy.append(label, detail);
+    button.appendChild(copy);
+    button.onpointermove = () => {
+      if (paletteIndex === index) return;
+      paletteIndex = index;
+      renderPaletteResults();
+    };
+    button.onclick = () => runPaletteItem(item);
+    results.appendChild(button);
+  });
+  const activeId = `palette-option-${paletteIndex}`;
+  $('#palette-search').setAttribute('aria-activedescendant', activeId);
+  $('#' + activeId)?.scrollIntoView({ block: 'nearest' });
+}
+
+async function runPaletteItem(item = paletteResults[paletteIndex]) {
+  if (!item) return;
+  const overlay = findOverlay('palette');
+  if (overlay) closeOverlay(overlay, { restoreFocus: false });
+  try {
+    await item.run();
+  } catch (error) {
+    toast(t('tabActionError', error.message));
+  }
+}
+
+async function openPalette() {
+  const existing = findOverlay('palette');
+  if (existing) { $('#palette-search').focus(); return; }
+  const overlayEl = $('#palette-overlay');
+  const ov = openOverlay({
+    name: 'palette',
+    el: $('#palette'),
+    trap: true,
+    onClose: () => {
+      overlayEl.classList.remove('show');
+      paletteItems = [];
+      paletteResults = [];
+    }
+  });
+  overlayEl.onclick = (e) => { if (e.target === overlayEl) closeOverlay(ov); };
+  const search = $('#palette-search');
+  search.value = '';
+  paletteIndex = 0;
+  overlayEl.classList.add('show');
+  search.focus();
+  paletteItems = await collectPaletteItems();
+  if (findOverlay('palette') !== ov) return;
+  renderPaletteResults();
+}
+
 // ---------- GitHub Gist sync ----------
 
 const SYNC_STATUS_TEXT = {
@@ -1277,6 +1692,11 @@ const SYNC_STATUS_TEXT = {
 
 async function reloadSyncedState() {
   meta = await loadMeta();
+  await tabState('repair').catch(() => {});
+  const state = await tabState('spaceState', { windowId: panelWindowId ?? await currentWindow() }).catch(() => null);
+  activeSpaceId = meta.spaces.some(space => space.id === state?.activeSpaceId)
+    ? state.activeSpaceId
+    : meta.activeSpaceId || meta.spaces[0]?.id;
   anchors = await loadAnchors(activeSpace().id);
   await loadNoteUI();
   render();
@@ -1383,7 +1803,12 @@ async function init() {
   }
   meta = await loadMeta();
   await cleanupOrphans(meta).catch(() => {});
+  panelWindowId = await currentWindow();
   await tabState('repair').catch(() => {});
+  const initialWorkspace = await tabState('spaceState', { windowId: panelWindowId }).catch(() => null);
+  activeSpaceId = meta.spaces.some(space => space.id === initialWorkspace?.activeSpaceId)
+    ? initialWorkspace.activeSpaceId
+    : meta.activeSpaceId || meta.spaces[0]?.id;
   anchors = await loadAnchors(activeSpace().id);
   await loadNoteUI();
 
@@ -1394,7 +1819,37 @@ async function init() {
   $('#add-anchor').onclick = () => addCurrentTab();
   $('#add-folder').onclick = addFolder;
   $('#add-space').onclick = addSpace;
+  $('#open-palette').onclick = openPalette;
   $('#space-menu').onclick = (e) => { e.stopPropagation(); showSpaceMenu(e.currentTarget); };
+  $('#palette-search').oninput = () => {
+    paletteIndex = 0;
+    renderPaletteResults();
+  };
+  $('#palette-search').onkeydown = (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      paletteIndex = paletteResults.length ? (paletteIndex + 1) % paletteResults.length : 0;
+      renderPaletteResults();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      paletteIndex = paletteResults.length ? (paletteIndex - 1 + paletteResults.length) % paletteResults.length : 0;
+      renderPaletteResults();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      runPaletteItem();
+    }
+  };
+  document.addEventListener('keydown', (e) => {
+    const target = e.target;
+    const editing = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target?.isContentEditable;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      openPalette();
+    } else if (e.key === '/' && !editing && !overlays.length) {
+      e.preventDefault();
+      openPalette();
+    }
+  });
 
   // Roving focus in the space tablist.
   $('#spaces').addEventListener('keydown', (e) => {
@@ -1538,7 +1993,8 @@ async function init() {
   chrome.windows.onFocusChanged.addListener(scheduleRender);
   chrome.storage.onChanged.addListener(async (changes, area) => {
     if (area === 'session') {
-      if (changes.bindings || changes.lastActive) scheduleRender();
+      if (changes.bindings || changes.lastActive || changes.tabSpaces ||
+          changes.activeSpaces || changes.spaceLastTabs) scheduleRender();
       return;
     }
     if (area === 'local') {
@@ -1550,6 +2006,14 @@ async function init() {
       }
       if (importing || !Object.keys(changes).some(isPersistentKey)) return;
       meta = await loadMeta();
+      if (!meta.spaces.some(space => space.id === activeSpaceId)) {
+        activeSpaceId = meta.activeSpaceId || meta.spaces[0]?.id;
+        await tabState('activateSpace', {
+          spaceId: activeSpaceId,
+          windowId: panelWindowId,
+          focusTab: false
+        }).catch(() => {});
+      }
       anchors = await loadAnchors(activeSpace().id);
       scheduleRender();
       return;

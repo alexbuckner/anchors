@@ -2,6 +2,26 @@
 
 All notable changes to Anchors will be documented in this file.
 
+## [0.9.0] — 2026-07-19
+
+### Added
+
+- Added device-local Today tabs per Space, per-window active Spaces, and
+  restoration of the last live tab used in each Space.
+- Persisted Today-to-Space assignments in Chromium session metadata so
+  restored tabs return to the right Space after a browser restart.
+- Added up to 12 global Favorites with the full anchor home-page lifecycle,
+  encrypted Gist sync, import, and export support.
+- Added a keyboard-driven Command Palette for Favorites, Spaces, anchors,
+  Today tabs, archived pages, and common actions.
+- Added actions to move Today tabs between Spaces and move anchors between a
+  Space and Favorites.
+
+### Changed
+
+- Active Space selection is now local to each browser window and no longer
+  causes another synced device to switch context.
+
 ## [0.8.2] — 2026-07-19
 
 ### Fixed

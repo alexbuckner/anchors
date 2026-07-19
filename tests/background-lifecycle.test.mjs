@@ -66,6 +66,7 @@ const syncState = {};
 const sessionState = {};
 const localState = {};
 const tabs = new Map();
+const tabValues = new Map();
 const windows = new Map();
 let nextTabId = 100;
 let nextWindowId = 10;
@@ -95,6 +96,20 @@ globalThis.chrome = {
     session: storageArea(sessionState, events.storageChanged, 'session'),
     local: storageArea(localState, events.storageChanged, 'local'),
     onChanged: events.storageChanged
+  },
+  sessions: {
+    async getTabValue(tabId, key) { return clone(tabValues.get(tabId)?.[key]); },
+    async setTabValue(tabId, key, value) {
+      const values = tabValues.get(tabId) || {};
+      values[key] = clone(value);
+      tabValues.set(tabId, values);
+    },
+    async removeTabValue(tabId, key) {
+      const values = tabValues.get(tabId);
+      if (!values) return;
+      delete values[key];
+      if (!Object.keys(values).length) tabValues.delete(tabId);
+    }
   },
   tabs: {
     onCreated: events.onCreated,
@@ -196,6 +211,7 @@ function setFixture({ keepAnchorTabs = false, restored = [] } = {}) {
     for (const key of Object.keys(state)) delete state[key];
   }
   tabs.clear();
+  tabValues.clear();
   windows.clear();
   nextTabId = 100;
   nextWindowId = 10;
@@ -220,6 +236,7 @@ function setFixture({ keepAnchorTabs = false, restored = [] } = {}) {
       pinned: false, audible: false, discarded: false
     };
     tabs.set(tab.id, tab);
+    if (item.spaceId) tabValues.set(tab.id, { anchorsSpaceId: item.spaceId });
     if (tab.active) activate(tab);
     nextTabId = Math.max(nextTabId, tab.id + 1);
   }
@@ -251,11 +268,11 @@ test('Vivaldi-like partial sidePanel API still registers and answers tab message
 
   const handshake = await send('handshake');
   assert.equal(handshake.ok, true);
-  assert.equal(handshake.protocolVersion, 2);
+  assert.equal(handshake.protocolVersion, 3);
 
   const repaired = await send('repair');
   assert.equal(repaired.ok, true);
-  assert.equal(repaired.protocolVersion, 2);
+  assert.equal(repaired.protocolVersion, 3);
 
   const opened = await send('open', { anchorId: 'a', windowId: 1 });
   assert.equal(typeof opened.tabId, 'number');
@@ -318,6 +335,53 @@ test('release keeps the live page open and resets it as an unbound tab', async (
   assert.ok(tabs.has(opened.tabId));
   assert.deepEqual(sessionState.bindings, {});
   assert.equal(typeof sessionState.tabSeen[opened.tabId], 'number');
+  assert.equal(sessionState.tabSpaces[opened.tabId], 'space');
+});
+
+test('Today tabs belong to a per-window Space and switching restores the last tab', async () => {
+  localState.meta.spaces.push({ id: 'home', name: 'Home', color: '#63d489' });
+  const workTab = await chrome.tabs.create({ url: 'https://work.test/', windowId: 1, active: true });
+  await drain();
+  assert.equal(sessionState.tabSpaces[workTab.id], 'space');
+
+  const switched = await send('activateSpace', { spaceId: 'home', windowId: 1 });
+  assert.equal(switched.activeSpaceId, 'home');
+  assert.equal(sessionState.activeSpaces[1], 'home');
+
+  const homeTab = await chrome.tabs.create({ url: 'https://home.test/', windowId: 1, active: true });
+  await drain();
+  assert.equal(sessionState.tabSpaces[homeTab.id], 'home');
+
+  const restored = await send('activateSpace', { spaceId: 'space', windowId: 1 });
+  assert.equal(restored.tabId, workTab.id);
+  assert.equal(tabs.get(workTab.id).active, true);
+});
+
+test('restored tabs recover their Space from Chromium session metadata', async () => {
+  setFixture({ restored: [{ id: 7, url: 'https://home.test/', active: true, spaceId: 'home' }] });
+  localState.meta.spaces.push({ id: 'home', name: 'Home', color: '#63d489' });
+  await drain();
+  assert.equal(sessionState.tabSpaces[7], 'home');
+  assert.equal(sessionState.activeSpaces[1], 'home');
+});
+
+test('moving an active Today tab updates its Space and restart metadata', async () => {
+  localState.meta.spaces.push({ id: 'home', name: 'Home', color: '#63d489' });
+  const tab = await chrome.tabs.create({ url: 'https://move.test/', windowId: 1, active: true });
+  await drain();
+  await send('moveToday', { tabId: tab.id, spaceId: 'home' });
+  assert.equal(sessionState.tabSpaces[tab.id], 'home');
+  assert.equal(sessionState.activeSpaces[1], 'home');
+  assert.equal(tabValues.get(tab.id).anchorsSpaceId, 'home');
+});
+
+test('Favorites are global anchors and do not change the active Space', async () => {
+  localState.meta.favorites = [{ id: 'fav', url: 'https://favorite.test/', title: 'Favorite' }];
+  const opened = await send('open', { anchorId: 'fav', windowId: 1 });
+  await drain();
+  assert.equal(tabs.get(opened.tabId).url, 'https://favorite.test/');
+  assert.equal(sessionState.activeSpaces[1], 'space');
+  assert.equal(sessionState.tabSpaces[opened.tabId], undefined);
 });
 
 test('queued Go Home and Open actions cannot split URL from its binding', async () => {
